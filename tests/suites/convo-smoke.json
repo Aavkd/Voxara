@@ -1,0 +1,20 @@
+{
+  "name": "Conversation memory tests",
+  "type": "conversation",
+  "model": "gemini-2.0-flash",
+  "tests": [
+    {
+      "id": "name-memory",
+      "turns": [
+        {
+          "user": "My name is Alice. Please remember it.",
+          "expect": { "keywords": ["Alice"] }
+        },
+        {
+          "user": "What is my name?",
+          "expect": { "keywords": ["Alice"] }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "RAG smoke tests",
+  "type": "rag",
+  "model": "gemini-2.0-flash",
+  "tests": [
+    {
+      "id": "policy-lookup",
+      "question": "What is the return policy?",
+      "documents": [
+        { "source": "file", "path": "../fixtures/policy.txt" }
+      ],
+      "expect": {
+        "keywords": ["30 days"],
+        "faithfulness": true
+      }
+    },
+    {
+      "id": "inline-fact",
+      "question": "What color is the sky according to the document?",
+      "documents": [
+        { "source": "inline", "content": "According to our research, the sky appears blue due to Rayleigh scattering." }
+      ],
+      "expect": {
+        "keywords": ["blue"],
+        "noHallucination": true,
+        "faithfulness": true
+      }
+    }
+  ]
+}

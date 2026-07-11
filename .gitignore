@@ -1,0 +1,28 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python speech-service environments
+.venv-faster-whisper/
+.venv-qwen3-tts/
+
+# Downloaded model weights and caches
+models/
+
+# Runtime logs
+logs/
+*.log
+
+# Editor, agent, and operating-system files
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

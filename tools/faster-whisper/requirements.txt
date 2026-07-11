@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2
+faster-whisper>=1.1.0
+# CUDA runtime DLLs for CTranslate2 GPU inference on Windows (see _cuda.py).
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

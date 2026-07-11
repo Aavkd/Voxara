@@ -1,0 +1,25 @@
+{
+  "name": "Agent smoke tests",
+  "type": "agentic",
+  "model": "gemini-2.0-flash",
+  "tools": ["file_read", "calculator"],
+  "sandbox": "../fixtures/",
+  "tests": [
+    {
+      "id": "read-notes",
+      "prompt": "Read the file notes.txt and tell me what it contains.",
+      "expect": {
+        "toolCalls": [{ "name": "file_read", "params": { "path": "notes.txt" } }],
+        "maxSteps": 3
+      }
+    },
+    {
+      "id": "calculate",
+      "prompt": "What is 25 multiplied by 48?",
+      "expect": {
+        "toolCalls": [{ "name": "calculator" }],
+        "keywords": ["1200"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+This is a sample notes file used for agent tool-use testing.
+Key facts: the project is called llmtest, it was started in 2026, and it tests LLM APIs.

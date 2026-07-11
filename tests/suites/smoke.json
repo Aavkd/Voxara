@@ -1,0 +1,40 @@
+{
+  "name": "Smoke Tests",
+  "tests": [
+    {
+      "id": "greeting",
+      "prompt": "Say hello and introduce yourself in one sentence.",
+      "expect": {
+        "keywords": ["hello"]
+      }
+    },
+    {
+      "id": "math-addition",
+      "prompt": "What is 15 + 27? Reply with just the number.",
+      "expect": {
+        "keywords": ["42"]
+      }
+    },
+    {
+      "id": "factual-capital",
+      "prompt": "What is the capital of France? Reply with just the city name.",
+      "expect": {
+        "keywords": ["Paris"]
+      }
+    },
+    {
+      "id": "factual-element",
+      "prompt": "What is the chemical symbol for water? Reply with just the formula.",
+      "expect": {
+        "keywords": ["H2O"]
+      }
+    },
+    {
+      "id": "instruction-following",
+      "prompt": "List exactly three primary colors, separated by commas.",
+      "expect": {
+        "keywords": ["red", "blue"]
+      }
+    }
+  ]
+}

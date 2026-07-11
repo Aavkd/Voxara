@@ -1,0 +1,6 @@
+{{systemPrompt}}
+
+{{documents}}
+---
+
+Question: {{question}}
