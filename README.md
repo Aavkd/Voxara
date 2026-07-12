@@ -1,51 +1,63 @@
-# Voxara — Local-first AI companion CLI
+# Voxara — compagnon IA vocal et agentique
 
-Voxara is a TypeScript command-line application for chatting with, testing, and evaluating large language models. It supports Google Gemini, GitHub Models, and local Ollama models, and includes an optional real-time voice loop with local speech-to-text and text-to-speech.
+Voxara est une application CLI TypeScript qui fournit un compagnon IA **local-first** : conversation texte ou voix, mémoire durable, outils, et délégation de tâches complexes à **Codex CLI** ou **Claude Code**. Les agents travaillent en arrière-plan : vous continuez à parler avec Voxara pendant qu’ils recherchent, analysent ou produisent des fichiers.
 
-The project currently provides:
+> La capture vocale cible actuellement Windows (FFmpeg / DirectShow). Les fonctionnalités texte, mémoire, délégation et évaluation n’exigent pas de microphone.
 
-- Streaming text chat and persistent agent chat
-- Google Gemini, GitHub Models, and Ollama providers
-- Prompt, benchmark, model-comparison, and multi-turn conversation tests
-- Agent tool-use tests with sandboxed file access
-- RAG tests with faithfulness and hallucination checks
-- Editable runtime prompts under `prompts/`
-- Layered long-term memory in editable Markdown under `~/.llmtest/memory/`
-- Local French/English voice chat with VAD and barge-in
-- Local STT through faster-whisper or whisper.cpp
-- Local TTS through Piper, Supertonic, or Qwen3-TTS
+## Fonctionnalités
 
-> Voice capture currently targets Windows and uses FFmpeg DirectShow. The text, agent, RAG, and evaluation features only require Node.js and a configured LLM provider.
+- Conversation textuelle avec streaming et conversation vocale quasi temps réel.
+- Chaîne vocale locale : VAD, détection de fin de tour, STT, TTS en flux et interruption naturelle (*barge-in*).
+- Google Gemini, GitHub Models ou Ollama local.
+- Conversations agentiques avec calcul, fichiers, heure, mémoire et documents de contexte.
+- Mémoire longue durée locale, éditable en Markdown, consolidée et nettoyée automatiquement.
+- Délégation asynchrone à Codex CLI ou Claude Code pour la recherche web approfondie, l’analyse de dépôt, le débogage et le code.
+- Écritures de code contrôlées par Git, worktrees isolés et plans d’actions externes soumis à approbation explicite.
+- Benchmarks, comparaisons de modèles, RAG, tests d’outils et scénarios multi-tours.
 
-## Requirements
+## Comment cela fonctionne
 
-### Core application
+```text
+Vous ── voix ou texte ──> Voxara ──> modèle de langage
+                              │
+                              ├── mémoire Markdown locale
+                              ├── outils et espace de travail
+                              └── tâches longues en arrière-plan
+                                   ├── Codex CLI
+                                   └── Claude Code
+```
 
-- Node.js 18 or newer
-- npm
-- One LLM provider:
-  - a Google Gemini API key;
-  - a GitHub personal access token with access to GitHub Models; or
-  - a running local Ollama server (no API key required).
+Une délégation renvoie immédiatement un identifiant de tâche. Voxara suit l’exécution en arrière-plan et remet le résultat quand il est prêt, avec les chemins réels des livrables produits.
 
-### Optional voice features
+## Prérequis
 
-- Windows
-- FFmpeg available on `PATH`
-- A microphone and audio output device
-- Python 3.11 or 3.12 for the faster-whisper or Qwen3-TTS sidecars
-- An NVIDIA/CUDA environment for the default GPU faster-whisper configuration, or a CPU-compatible configuration
+### Application
 
-## Quick start
+- Node.js 18 ou plus récent ;
+- npm ;
+- un fournisseur LLM : Google Gemini, GitHub Models ou Ollama.
 
-Install dependencies and create a local configuration:
+### Voix (facultatif)
+
+- Windows ;
+- FFmpeg dans le `PATH` ;
+- microphone et sortie audio ;
+- Python 3.11 ou 3.12 pour faster-whisper ou Qwen3-TTS ;
+- NVIDIA/CUDA pour la configuration GPU faster-whisper par défaut, ou une configuration CPU adaptée.
+
+### Délégation (facultatif)
+
+- Codex CLI et/ou Claude Code installé et authentifié ;
+- délégation activée dans `.env`.
+
+## Démarrage rapide
 
 ```powershell
 npm install
 Copy-Item .env.example .env
 ```
 
-Edit `.env` and configure one of the following providers.
+Configurez un fournisseur dans `.env`.
 
 ### Google Gemini
 
@@ -71,9 +83,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:8b
 ```
 
-Make sure the selected Ollama model is installed and the Ollama server is running.
-
-Validate the configuration, then start chatting:
+Vérifiez la configuration, puis démarrez une conversation :
 
 ```powershell
 npm run dev -- config
@@ -81,96 +91,63 @@ npm run dev -- validate
 npm run dev -- chat
 ```
 
-For a compiled build:
+Pour compiler :
 
 ```powershell
 npm run build
 node dist/cli.js chat
 ```
 
-## CLI commands
+Pendant le développement, utilisez `npm run dev -- <commande>`. Après compilation, utilisez `node dist/cli.js <commande>`.
 
-Run `npm run dev -- <command>` during development or `node dist/cli.js <command>` after building.
-
-| Command | Purpose |
-| --- | --- |
-| `config` | Show the resolved configuration and its sources. |
-| `validate` | Check the selected provider credentials and model. |
-| `models` | List models available from the selected provider. |
-| `prompt <text>` | Send one prompt, optionally with an image or system prompt. |
-| `chat` | Start a persistent streaming text chat. |
-| `agent-chat` | Start an interactive chat with tools and optional document context. |
-| `run <file>` | Run a benchmark suite. |
-| `compare <file> --models <a,b>` | Compare a suite across multiple models. |
-| `convo <file>` | Run scripted multi-turn conversation tests. |
-| `agent <file>` | Run tool-use and file-assertion tests. |
-| `rag <file>` | Run document-grounded RAG tests. |
-| `prompts check` | Validate the editable prompt files and template variables. |
-| `memory list` | Show the long-term memory index and entry counts. |
-| `memory show <id>` | Print one memory entry (fact or episode). |
-| `memory edit <id>` | Open a memory entry in your editor. |
-| `memory consolidate` | Force a memory consolidation run now (`--deep` adds the full hygiene pass). |
-| `memory forget <id>` | Archive a fact/episode and drop its index line. |
-| `shell` | Start the persistent interactive REPL. |
-| `voice-check` | Diagnose microphone, playback, VAD, STT, and TTS. |
-| `voice-chat` | Start the real-time voice conversation loop. |
-| `tts-compare [text]` | Compare the installed local TTS engines and voices. |
-
-Use `npm run dev -- <command> --help` to see all options for a command.
-
-Examples:
+## Conversations et outils
 
 ```powershell
-npm run dev -- prompt "Summarize the benefits of local inference" --temperature 0.2
-npm run dev -- prompt "Describe this image" --image .\photo.png
-npm run dev -- agent-chat --tools calculator,file_read --docs .\context.txt --sandbox .\sandbox
-npm run dev -- run .\tests\suites\smoke.json
-npm run dev -- compare .\tests\suites\smoke.json --models gemini-2.0-flash,gemini-2.5-flash
+# Conversation texte
+npm run dev -- chat
+
+# Conversation agentique avec fichiers et documents
+npm run dev -- agent-chat --tools calculator,file_read,file_write --docs .\context.txt
+
+# Espace de travail dédié à une session
+npm run dev -- agent-chat --sandbox .\WORKSPACE
 ```
 
-Built-in agent tools are `calculator`, `file_read`, `file_write`, and `get_current_time`. Use `--sandbox <dir>` to constrain file operations to a specific directory.
+Les outils intégrés sont `calculator`, `file_read`, `file_write`, `get_current_time`, `memory_read` et `memory_note`. Les outils de fichiers sont limités à `LLMTEST_WORKSPACE_DIR` (par défaut `~/.llmtest/workspace`) ou au répertoire passé avec `--sandbox`.
 
-## Voice setup
+## Conversation vocale
 
-The default voice stack uses faster-whisper for STT and Piper for CPU-based TTS.
+La boucle vocale écoute, transcrit localement, sollicite le modèle, puis lit la réponse au fil de sa génération. Si vous recommencez à parler, l’assistant peut interrompre sa réponse.
 
-1. Install FFmpeg and confirm that `ffmpeg -version` works.
-2. Set up the local speech engines:
+La configuration standard utilise faster-whisper pour le STT et Piper pour le TTS.
 
 ```powershell
+# Installer les moteurs locaux
 npm run stt:setup
 npm run tts:piper:setup
-```
 
-3. In a separate terminal, start faster-whisper:
-
-```powershell
+# Dans un autre terminal
 npm run stt:start
-```
 
-4. Run the audio diagnostics, then start a conversation:
-
-```powershell
+# Diagnostiquer et démarrer la conversation
 npm run dev -- voice-check
 npm run dev -- voice-chat
 ```
 
-The first faster-whisper launch may download model weights and take longer than subsequent starts.
-
-Useful alternatives:
+Pour utiliser les outils — dont la délégation — dans la conversation vocale :
 
 ```powershell
-# Install the CPU-based Supertonic TTS engine
-npm run tts:supertonic:setup
-
-# Compare installed TTS providers
-npm run dev -- tts-compare "Bonjour, ceci est un test."
-
-# Start voice chat with local tools enabled
-npm run dev -- voice-chat --agent --tools calculator,file_read --sandbox .\sandbox
+npm run dev -- voice-chat --agent --tools all --sandbox .\WORKSPACE
 ```
 
-Select engines in `.env`:
+Autres moteurs TTS disponibles :
+
+```powershell
+npm run tts:supertonic:setup
+npm run dev -- tts-compare "Bonjour, ceci est un test."
+```
+
+Exemple de configuration :
 
 ```env
 VOICE_LANGUAGE=fr
@@ -182,161 +159,171 @@ PIPER_VOICE=./models/piper/fr_FR-siwis-medium.onnx
 VOICE_BARGE_IN=true
 ```
 
-Supported STT providers are `faster-whisper` and `whisper-cpp`. Supported TTS providers are `piper`, `supertonic`, and `qwen3-tts`. See [`.env.example`](.env.example) for every voice, timeout, chunking, and VAD setting.
-
-During `voice-chat`, the following terminal commands are available:
-
-| Command | Action |
+| Commande pendant `voice-chat` | Effet |
 | --- | --- |
-| `/exit` | End the session. |
-| `/mute`, `/unmute` | Disable or restore microphone listening. |
-| `/interrupt` | Stop the current spoken response. |
-| `/provider <google\|github\|ollama>` | Change provider for subsequent turns. |
-| `/model <name>` | Change the active model. |
-| `/tts <piper\|supertonic\|qwen3>` | Change TTS engine. |
-| `/tts-voice <name>` | Change the current TTS voice. |
-| `/reload-prompts` | Reload prompt files without rebuilding. |
-| `/voice-style` | Display the current voice-style prompt. |
-| `/debug on`, `/debug off` | Toggle debug output. |
-| `/tools all\|none\|<a,b>` | Change active tools in agent mode. |
-| `/memory` | Print the long-term memory index. |
+| `/exit` | Termine la session. |
+| `/mute`, `/unmute` | Coupe ou réactive le microphone. |
+| `/interrupt` | Arrête la réponse parlée. |
+| `/provider <google\|github\|ollama>` | Change le fournisseur. |
+| `/model <nom>` | Change le modèle actif. |
+| `/tts <piper\|supertonic\|qwen3>` | Change le moteur de synthèse. |
+| `/tts-voice <nom>` | Change la voix. |
+| `/reload-prompts` | Recharge les prompts. |
+| `/tools all\|none\|<a,b>` | Modifie les outils en mode agent. |
+| `/memory` | Affiche l’index de mémoire. |
 
-Voice session events and latency metrics are written as JSONL files under `~/.llmtest/voice-sessions/`.
+Les événements et mesures de latence sont enregistrés dans `~/.llmtest/voice-sessions/`.
 
-## Test suite formats
+## Délégation à Codex ou Claude Code
 
-Ready-to-run examples live in `tests/suites/`:
+Voxara peut confier à un agent installé une tâche longue et bornée : recherche web approfondie, inspection de dépôt, analyse de tests, débogage, écriture de code ou création de livrables dans l’espace de travail.
 
-- `smoke.json` — basic prompt and keyword assertions
-- `convo-smoke.json` — multi-turn memory tests
-- `agent-smoke.json` — expected tool calls and sandbox file assertions
-- `rag-smoke.json` — file or inline context with faithfulness checks
-- `latency.json` — latency limits and response-quality checks
+Activez cette capacité explicitement :
 
-A minimal benchmark suite looks like this:
+```env
+DELEGATION_ENABLED=true
+DELEGATION_DEFAULT_BACKEND=auto
+DELEGATION_ALLOWED_ROOTS=C:\Users\you\.llmtest\workspace
 
-```json
-{
-  "name": "Smoke tests",
-  "tests": [
-    {
-      "id": "capital",
-      "prompt": "What is the capital of France?",
-      "expect": {
-        "keywords": ["Paris"],
-        "maxLatencyMs": 5000
-      }
-    }
-  ]
-}
+# Facultatif si les exécutables ne sont pas dans PATH
+# CODEX_CLI_PATH=
+# CLAUDE_CLI_PATH=
 ```
 
-Run it with:
+Puis vérifiez votre installation et gérez les tâches :
 
 ```powershell
-npm run dev -- run .\tests\suites\smoke.json
+npm run dev -- delegates doctor
+npm run dev -- delegates list
+npm run dev -- delegates show <task-id>
+npm run dev -- delegates cancel <task-id>
 ```
 
-## Runtime prompts
-
-Behavioral prompts are stored in `prompts/` and read at runtime, so they can be changed without rebuilding the application:
-
-| File | Role |
+| Type de besoin | Comportement |
 | --- | --- |
-| `persona.md` | General assistant personality and conversation behavior. |
-| `agent.md` | Tool-use behavior and final-answer rules. |
-| `rag.md` | Document-grounded response instructions. |
-| `judge.md`, `judge-strict.md` | LLM evaluation instructions. |
-| `faithfulness.md` | RAG faithfulness evaluation. |
-| `stt-cleanup.md` | Optional speech transcript cleanup. |
-| `voice-style.md` | Voice-design instructions for compatible TTS providers. |
+| Recherche ou analyse | Tâche en `read_only`, exécutée en arrière-plan avec limites de durée et de sortie. |
+| Écrire dans l’espace Voxara | Écriture directe avec checkpoints Git et liste des chemins effectivement produits. |
+| Modifier un autre dépôt Git | Travail dans un worktree isolé ; un diff/patch est fourni pour revue, sans modifier l’arbre principal. |
+| Agir sur des fichiers utilisateur ou lancer un programme | Préparation d’un manifeste, explication du plan, puis exécution seulement après accord explicite. |
 
-Validate prompt files after editing them:
+Les tâches sont confinées aux racines déclarées, annulables et supervisées. Les programmes exécutables par une action externe doivent être explicitement autorisés avec `DELEGATION_ALLOWED_PROGRAMS`. Évitez d’y autoriser un shell généraliste, sauf choix délibéré.
+
+## Mémoire durable
+
+La mémoire est locale, lisible et modifiable en Markdown dans `~/.llmtest/memory/` (ou `LLMTEST_MEMORY_DIR`) :
+
+```text
+MEMORY.md       index chargé dans les conversations
+facts/          faits durables sur l’utilisateur
+episodes/       synthèses datées des sessions
+inbox/          notes à consolider
+archive/        contenu retiré de l’index, sans suppression brutale
+```
+
+```powershell
+npm run dev -- memory list
+npm run dev -- memory show <id>
+npm run dev -- memory edit <id>
+npm run dev -- memory consolidate --deep
+npm run dev -- memory forget <id>
+```
+
+Après une conversation, un agent de mémoire peut créer un épisode, extraire des faits durables et effectuer l’hygiène : fusion de doublons, résolution des contradictions, compactage des anciens épisodes et archivage des éléments retirés. Voir [l’architecture mémoire](docs/memory-architecture-spec.md).
+
+## Commandes CLI
+
+| Commande | Rôle |
+| --- | --- |
+| `config` | Affiche la configuration résolue. |
+| `validate` | Vérifie les identifiants et le modèle actif. |
+| `models` | Liste les modèles disponibles. |
+| `prompt <texte>` | Envoie un prompt unique, avec image ou prompt système facultatif. |
+| `chat` | Conversation textuelle persistante. |
+| `agent-chat` | Conversation avec outils et contexte documentaire. |
+| `voice-check` | Diagnostic microphone, lecture, VAD, STT et TTS. |
+| `voice-chat` | Conversation vocale temps réel. |
+| `tts-compare [texte]` | Compare les moteurs et voix TTS. |
+| `memory …` | Gestion de la mémoire durable. |
+| `delegates …` | Diagnostic et gestion des tâches déléguées. |
+| `run <fichier>` | Exécute une suite de benchmarks. |
+| `compare <fichier> --models <a,b>` | Compare une suite entre plusieurs modèles. |
+| `convo <fichier>` | Exécute un scénario conversationnel multi-tours. |
+| `agent <fichier>` | Exécute des tests d’outils et d’assertions de fichiers. |
+| `rag <fichier>` | Exécute des tests RAG fondés sur des documents. |
+| `prompts check` | Valide les prompts modifiables. |
+| `shell` | Lance le REPL interactif. |
+
+Utilisez `npm run dev -- <commande> --help` pour les options détaillées.
+
+## Prompts et évaluation
+
+Les prompts de comportement sont chargés depuis `prompts/` à l’exécution : personnalisez notamment `persona.md`, `agent.md`, `voice-style.md` et `rag.md`, puis validez-les :
 
 ```powershell
 npm run dev -- prompts check --debug
 ```
 
-Set `PROMPTS_DIR` to load prompts from another directory.
-
-## Long-term memory
-
-The assistant keeps a layered, human-editable memory under `~/.llmtest/memory/` (override with `LLMTEST_MEMORY_DIR`):
-
-- `MEMORY.md` — the index, injected into every `chat`, `agent-chat`, and `voice-chat` session
-- `facts/` — durable facts about the user, one Markdown file each
-- `episodes/` — dated summaries of past conversations
-- `inbox/` — raw "remember that…" notes awaiting consolidation
-- `archive/` — retired material, never loaded into prompts
-
-Everything is plain Markdown: inspect it with `memory list` and `memory show <id>`, or edit the files directly. In agent modes the model can read entries with the `memory_read` tool and save notes with `memory_note` when you say "retiens que…" / "remember that…".
-
-Finished conversations are consolidated in the background by a dedicated memory agent: on `/exit` (and via a startup catch-up sweep after crashes), each session becomes a dated episode file, durable facts are extracted or updated, and inbox notes are filed. Set `MEMORY_AGENT_PROVIDER` / `MEMORY_AGENT_MODEL` to run consolidation on a cheaper or local model; force a run with `memory consolidate`; archive a fact with `memory forget <id>`.
-
-Memory also cleans itself: every consolidation ends with a hygiene step that merges duplicate facts, resolves contradictions (newest wins, the loser is archived), compacts episodes older than `MEMORY_EPISODE_RETENTION_DAYS` (default 90) into quarterly digests, and keeps `MEMORY.md` within its 80-line budget. Run `memory consolidate --deep` to force the full pass. Nothing is ever hard-deleted — everything displaced moves to `archive/`.
-
-The full design is specified in [`docs/memory-architecture-spec.md`](docs/memory-architecture-spec.md).
-
-## Configuration resolution
-
-Configuration is resolved in this order, from highest to lowest priority:
-
-1. CLI overrides such as `--key` and `--model`
-2. Existing process environment variables
-3. The project-local `.env`
-4. The global `~/.llmtest/.env`
-5. Built-in defaults
-
-Never commit `.env`; it is already ignored by the project. Use `.env.example` as the safe configuration template.
-
-## Development
+Les exemples de benchmarks, scénarios d’agents et suites RAG se trouvent dans `tests/suites/`.
 
 ```powershell
-# Type-check and compile to dist/
+npm run dev -- prompt "Résume les avantages de l’inférence locale" --temperature 0.2
+npm run dev -- prompt "Décris cette image" --image .\photo.png
+npm run dev -- run .\tests\suites\smoke.json
+npm run dev -- compare .\tests\suites\smoke.json --models gemini-2.0-flash,gemini-2.5-flash
+```
+
+## Configuration
+
+La priorité de configuration est la suivante :
+
+1. options de ligne de commande ;
+2. variables d’environnement déjà présentes ;
+3. `.env` à la racine du projet ;
+4. `~/.llmtest/.env` ;
+5. valeurs par défaut.
+
+Ne versionnez pas `.env`. Consultez [`.env.example`](.env.example) pour l’ensemble des réglages de fournisseurs, voix, mémoire, délégation, limites et espaces de travail.
+
+## Développement
+
+```powershell
 npm run build
-
-# Run all Jest tests
 npm test
-
-# Run the CLI directly from TypeScript
 npm run dev -- --help
 ```
 
-The automated tests mock external LLM, speech, and audio boundaries; they do not require a live API, microphone, or GPU.
+Les tests isolent les frontières externes (LLM, audio et moteurs de parole) : ils ne requièrent ni clé API, ni microphone, ni GPU.
 
-## Project structure
+## Structure
 
 ```text
 src/
-  audio/          Microphone capture, playback, VAD, turn detection, interruption
-  commands/       CLI command handlers
-  display/        Ink/React terminal UI components
-  engine/         Agent execution loop
-  evaluation/     LLM-as-judge evaluation
-  memory/         Layered long-term memory store (Markdown files)
-  prompts/        Prompt loading, interpolation, and validation
-  providers/      Gemini, GitHub Models, Ollama, and built-in tools
-  rag/            Document loading, context building, and faithfulness judging
-  session/        Persistent text, agent, and voice session data
-  speech/         Replaceable STT and TTS providers
-  validation/     JSON Schema validation
-docs/             Voice architecture, implementation phases, and troubleshooting
-prompts/          User-editable runtime prompt templates
-tests/            Jest tests, fixtures, and example suites
-tools/            Local speech service and model setup scripts
+  audio/        Microphone, lecture, VAD, tours et interruptions
+  commands/     Commandes CLI
+  delegation/   Politique, exécution supervisée, backends Codex/Claude, worktrees
+  engine/       Boucle agent, tâches et livraisons
+  memory/       Mémoire Markdown, consolidation et hygiène
+  providers/    Gemini, GitHub Models, Ollama et outils
+  speech/       Fournisseurs STT et TTS interchangeables
+  rag/          Chargement documentaire, contexte et fidélité
+  prompts/      Chargement et validation des prompts
+docs/           Architecture, phases et guides
+prompts/        Prompts modifiables à l’exécution
+tests/          Tests, fixtures et suites d’évaluation
+tools/          Scripts d’installation des services vocaux
 ```
 
-## Troubleshooting
+## Dépannage
 
-| Problem | Check |
+| Problème | À vérifier |
 | --- | --- |
-| Missing API key | Confirm `LLMTEST_PROVIDER` and its matching key in `.env`, then run `config`. |
-| Ollama connection fails | Confirm Ollama is running, the model is installed, and `OLLAMA_BASE_URL` is correct. |
-| No microphone is detected | Confirm FFmpeg is on `PATH`; run `voice-check --device "Exact device name"`. |
-| No transcription | Start the faster-whisper service or verify the whisper.cpp binary/model paths. |
-| No synthesized speech | Verify the selected TTS provider and its model/assets paths. |
-| False interruptions | Use headphones, raise `VOICE_VAD_THRESHOLD`, or calibrate with `voice-check`. |
-| Quiet speech is ignored | Lower `VOICE_VAD_THRESHOLD` or `VOICE_VAD_MIN_THRESHOLD` gradually. |
-| First STT response is slow | Allow the service to finish downloading and warming its model. |
+| Clé API absente | Vérifiez `LLMTEST_PROVIDER` et la clé associée, puis lancez `config` et `validate`. |
+| Ollama inaccessible | Vérifiez que le serveur est démarré et que le modèle est installé. |
+| Microphone absent | Vérifiez FFmpeg et lancez `voice-check --device "Nom exact"`. |
+| Pas de transcription | Démarrez faster-whisper ou vérifiez whisper.cpp. |
+| Pas de synthèse vocale | Vérifiez le fournisseur TTS et ses chemins de ressources. |
+| Interruptions intempestives | Utilisez un casque, ajustez `VOICE_VAD_THRESHOLD` ou calibrez avec `voice-check`. |
+| Délégation indisponible | Lancez `delegates doctor`, puis vérifiez l’activation, les racines et Codex/Claude. |
+| Action externe non exécutée | Le plan doit avoir été présenté puis explicitement approuvé. |
 
-More detailed voice guidance is available in [`docs/guide-rapide-utilisation-audio.md`](docs/guide-rapide-utilisation-audio.md) and [`docs/audio-conversation-spec.md`](docs/audio-conversation-spec.md).
+Pour aller plus loin : [guide audio rapide](docs/guide-rapide-utilisation-audio.md), [architecture vocale](docs/audio-conversation-spec.md), [délégation d’agents](docs/phase-c2-coding-agent-delegation.md) et [feuille de route](docs/companion-roadmap.md).

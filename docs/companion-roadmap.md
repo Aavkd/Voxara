@@ -128,12 +128,20 @@ The step from "I launch a session" to "it is always there":
 
 ```
 2.1a reminders ─┐
-2.2 session opening ─┴─ first slice (shared theme: continuity + usefulness)
+2.2 session opening ─┴─ first slice — spec: phase-c1-reminders-continuity.md
 2.3 backchannel ──────── independent, small, anytime
 2.1b search / 2.1c local control ── independent tool additions
 2.4 wake word ────────── after the voice loop is otherwise stable
 2.5 vision ───────────── independent, but provider-interface work first
 ```
+
+**Priority update (2026-07-12):** the agentic layer comes first. Coding-agent
+delegation (realizing §5.1; spec:
+[phase-c2-coding-agent-delegation.md](phase-c2-coding-agent-delegation.md)) is
+pulled ahead of the reminders slice. Its first implementation slice (C2a) builds
+the shared engine primitives specified in phase C1 — task store, delivery queue,
+background dispatch — which C1's reminders and session opening then reuse when
+they land afterwards.
 
 Testing follows the project convention: Jest with all LLM (and TTS/STT) calls
 mocked; scheduler and tool logic tested against temp directories and fake
@@ -160,6 +168,10 @@ memory_read) stay synchronous.
 
 This is not one feature but a principle that shapes the agent loop — it should
 be designed before the §2.1 tool families grow, so new tools are born async.
+
+First concrete realization: coding-agent delegation (Codex CLI / Claude Code as
+Voxara's "hands"), specified in
+[phase-c2-coding-agent-delegation.md](phase-c2-coding-agent-delegation.md).
 
 ### 5.2 Briefing + tracked topics
 

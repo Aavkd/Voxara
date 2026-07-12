@@ -8,7 +8,7 @@ import React from "react";
 import * as fs from "fs";
 import * as path from "path";
 import { render } from "ink";
-import { loadConfig } from "../config/loader";
+import { loadConfig, loadWorkspaceDir } from "../config/loader";
 import { createProvider } from "../providers/factory";
 import { ILLMProvider } from "../providers/ILLMProvider";
 import { getTools, getAllTools, getAllToolNames } from "../providers/tools/index";
@@ -40,6 +40,9 @@ import {
   consolidateOnExit,
   startConsolidationSweep,
 } from "../memory/consolidation";
+import { drainPendingDeliveries } from "../engine/deliveryQueue";
+import { loadDelegationConfig } from "../config/loader";
+import { getDelegationService } from "../delegation/service";
 
 export async function agentChatCommand(options: {
   key?: string;
@@ -55,6 +58,12 @@ export async function agentChatCommand(options: {
   // Catch-up sweep for transcripts left unconsolidated by a crash or kill —
   // fire-and-forget so the conversation never waits on memory work.
   startConsolidationSweep(config);
+
+  // Delegation startup recovery (phase C2 §10): orphaned running tasks become
+  // `interrupted` and queue one failure delivery, surfaced below at startup.
+  if (loadDelegationConfig().enabled) {
+    getDelegationService();
+  }
 
   // ── Parse tools ──────────────────────────────────────────────────
   // If --tools is omitted, default to ALL registered tools so the agent can
@@ -115,7 +124,7 @@ export async function agentChatCommand(options: {
   // ── Resolve sandbox directory ────────────────────────────────────
   const sandboxDir = options.sandbox
     ? path.resolve(options.sandbox)
-    : path.join(process.cwd(), `llmtest-sandbox-${Date.now()}`);
+    : loadWorkspaceDir();
 
   if (!fs.existsSync(sandboxDir)) {
     fs.mkdirSync(sandboxDir, { recursive: true });
@@ -292,6 +301,39 @@ export async function agentChatCommand(options: {
         break;
       }
 
+      case "delegates": {
+        const tasks = getDelegationService().list(10);
+        appendModelMessage(
+          tasks.length > 0
+            ? tasks
+                .map(
+                  (t) =>
+                    `${t.id} — ${t.status} (${t.backend ?? "?"}) — ${(t.task ?? "").replace(/\s+/g, " ").slice(0, 70)}`
+                )
+                .join("\n")
+            : "No delegated tasks."
+        );
+        break;
+      }
+
+      case "delegate": {
+        if (!args) {
+          appendModelMessage("Usage: /delegate <task-id>");
+          break;
+        }
+        appendModelMessage(getDelegationService().status(args).text);
+        break;
+      }
+
+      case "cancel": {
+        if (!args) {
+          appendModelMessage("Usage: /cancel <task-id>");
+          break;
+        }
+        appendModelMessage(await getDelegationService().cancel(args));
+        break;
+      }
+
       case "exit": {
         saveAgentSession(session);
         // The component calls exit() itself when it receives /exit
@@ -300,7 +342,7 @@ export async function agentChatCommand(options: {
 
       default: {
         appendModelMessage(
-          `Unknown command: /${cmd}. Available: /tools /docs <path> /info /memory /clear /model <name> /exit`
+          `Unknown command: /${cmd}. Available: /tools /docs <path> /info /memory /delegates /delegate <id> /cancel <id> /clear /model <name> /exit`
         );
         break;
       }
@@ -381,6 +423,17 @@ export async function agentChatCommand(options: {
     session.updatedAt = Date.now();
     saveAgentSession(session);
     renderComponent();
+
+    // Text sessions drain the delivery queue between turns (C1 §4.2 / C2 §3.1):
+    // completed background-task results are printed before the next prompt.
+    drainDeliveriesIntoChat();
+  };
+
+  const drainDeliveriesIntoChat = (): void => {
+    const deliveries = drainPendingDeliveries();
+    for (const delivery of deliveries) {
+      appendModelMessage(`📬 ${delivery.text}`);
+    }
   };
 
   const appendModelMessage = (content: string): void => {
@@ -391,6 +444,15 @@ export async function agentChatCommand(options: {
     session.messages = state.messages;
     renderComponent();
   };
+
+  // Deliveries queued while no session was active (missed reminders, task
+  // completions, interrupted-task notices) surface once at startup.
+  for (const delivery of drainPendingDeliveries()) {
+    state.messages = [
+      ...state.messages,
+      { role: "model" as const, content: `📬 ${delivery.text}`, timestamp: Date.now() },
+    ];
+  }
 
   // ── Initial render ───────────────────────────────────────────────
   const { waitUntilExit, rerender } = render(

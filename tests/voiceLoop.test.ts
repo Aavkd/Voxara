@@ -5,10 +5,12 @@ import { CancellablePlaybackQueue } from "../src/audio/player";
 import { AudioBuffer, AudioOutput, PlaybackResult } from "../src/audio/types";
 import { PCM16_MONO_16KHZ, createToneWav } from "../src/audio/wav";
 import {
+  buildDeliveryAnnouncementPrompt,
   startVoiceAgentAssistantTurn,
   startVoiceAssistantTurn,
   StreamingTextChunker,
 } from "../src/commands/voiceChat";
+import { DeliveryRecord } from "../src/engine/deliveryQueue";
 import { ILLMProvider } from "../src/providers/ILLMProvider";
 import { IToolProvider } from "../src/providers/tools/IToolProvider";
 import { ITTSProvider } from "../src/speech/tts/ITTSProvider";
@@ -46,6 +48,39 @@ describe("StreamingTextChunker", () => {
       value: undefined,
       done: true,
     });
+  });
+});
+
+describe("buildDeliveryAnnouncementPrompt", () => {
+  function record(id: string, text: string): DeliveryRecord {
+    return {
+      id,
+      kind: "task_result",
+      refId: "task-x",
+      text,
+      queuedAt: new Date().toISOString(),
+      deliveredAt: null,
+    };
+  }
+
+  it("frames the turn as system-originated and lists every delivery", () => {
+    const prompt = buildDeliveryAnnouncementPrompt(
+      [record("dlv-1", "Tâche A terminée."), record("dlv-2", "Tâche B a échoué : exit 2")],
+      makeVoiceConfig("fr")
+    );
+    expect(prompt).toContain("l'utilisateur n'a rien dit");
+    expect(prompt).toContain("- Tâche A terminée.");
+    expect(prompt).toContain("- Tâche B a échoué : exit 2");
+    expect(prompt).toContain("n'invente jamais d'explication");
+  });
+
+  it("uses English framing for non-fr sessions", () => {
+    const prompt = buildDeliveryAnnouncementPrompt(
+      [record("dlv-1", "Task A done.")],
+      makeVoiceConfig("en")
+    );
+    expect(prompt).toContain("the user did not speak");
+    expect(prompt).toContain("- Task A done.");
   });
 });
 

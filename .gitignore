@@ -26,3 +26,6 @@ logs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Agent-owned deliverable workspace (its own nested git repo — phase C2d)
+WORKSPACE/

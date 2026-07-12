@@ -202,6 +202,139 @@ export function loadEpisodeRetentionDays(): number {
   );
 }
 
+const DEFAULT_WORKSPACE_DIR = path.join(GLOBAL_CONFIG_DIR, "workspace");
+
+/**
+ * Persistent agent workspace — the stable sandbox directory shared by the
+ * conversational agent's file tools (agent-chat, voice-chat --agent) and, in
+ * later phases, delegated coding agents (phase C2). Configured via
+ * LLMTEST_WORKSPACE_DIR; defaults to ~/.llmtest/workspace. The --sandbox CLI
+ * flag still overrides it for one session. Callers must run after loadConfig
+ * so .env files are loaded.
+ */
+export function loadWorkspaceDir(): string {
+  const raw = process.env.LLMTEST_WORKSPACE_DIR?.trim();
+  return path.resolve(raw || DEFAULT_WORKSPACE_DIR);
+}
+
+// ── Delegation (phase C2, docs/phase-c2-coding-agent-delegation.md §13) ──
+
+const DEFAULT_DELEGATION_MAX_CONCURRENT = 2;
+const DEFAULT_DELEGATION_TIMEOUT_MINUTES = 15;
+const DEFAULT_DELEGATION_MAX_TIMEOUT_MINUTES = 60;
+const DEFAULT_DELEGATION_MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+const DEFAULT_DELEGATION_ARTIFACT_RETENTION_DAYS = 14;
+
+export interface DelegationEnvConfig {
+  enabled: boolean;
+  defaultBackend: "auto" | "codex" | "claude";
+  codexPath?: string;
+  claudePath?: string;
+  allowedRoots: string[];
+  /** Agent-owned deliverable roots — direct-run write class (C2d §3–§4). */
+  agentOwnedRoots: string[];
+  maxConcurrent: number;
+  defaultTimeoutMinutes: number;
+  maxTimeoutMinutes: number;
+  maxOutputBytes: number;
+  artifactRetentionDays: number;
+  /** Program names allowed for manifest `execute` actions (C2c §6.2). */
+  allowedPrograms: string[];
+}
+
+/**
+ * Resolve the coding-agent delegation configuration (spec §13). Disabled by
+ * default. Allowed roots default to the shared agent workspace so delegated
+ * agents and Voxara's own file tools build in the same place. Callers must
+ * run after loadConfig/loadVoiceConfig so .env files are loaded.
+ */
+export function loadDelegationConfig(): DelegationEnvConfig {
+  const rawBackend = (process.env.DELEGATION_DEFAULT_BACKEND || "auto")
+    .trim()
+    .toLowerCase();
+  const defaultBackend =
+    rawBackend === "codex" || rawBackend === "claude" ? rawBackend : "auto";
+
+  const rawRoots = process.env.DELEGATION_ALLOWED_ROOTS || "";
+  const allowedRoots = rawRoots
+    .split(",")
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0)
+    .map((r) => path.resolve(r));
+
+  // Bare program names only (§6.2): a configured path would bypass the
+  // manifest validator's basename rule, so it is dropped here.
+  const rawPrograms = process.env.DELEGATION_ALLOWED_PROGRAMS || "";
+  const allowedPrograms = rawPrograms
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && p === path.basename(p));
+
+  const finalAllowedRoots =
+    allowedRoots.length > 0 ? allowedRoots : [loadWorkspaceDir()];
+
+  // Agent-owned roots (C2d §10): direct-run deliverable spaces. Defaults to
+  // the shared agent workspace. Every entry must sit inside the allowed
+  // roots — a violating entry is dropped (visible via `delegates doctor`),
+  // never a crash.
+  const rawAgentRoots = process.env.DELEGATION_AGENT_OWNED_ROOTS || "";
+  const configuredAgentRoots = rawAgentRoots
+    .split(",")
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0)
+    .map((r) => path.resolve(r));
+  const normalizeForContainment = (p: string): string =>
+    process.platform === "win32" ? p.toLowerCase() : p;
+  const insideAllowed = (candidate: string): boolean => {
+    const target = normalizeForContainment(candidate);
+    return finalAllowedRoots.some((root) => {
+      const normalizedRoot = normalizeForContainment(path.resolve(root));
+      return (
+        target === normalizedRoot ||
+        target.startsWith(normalizedRoot + path.sep)
+      );
+    });
+  };
+  const agentOwnedRoots = (
+    configuredAgentRoots.length > 0 ? configuredAgentRoots : [loadWorkspaceDir()]
+  ).filter(insideAllowed);
+
+  return {
+    enabled: parseBoolean(undefined, process.env.DELEGATION_ENABLED, false),
+    defaultBackend,
+    codexPath: process.env.CODEX_CLI_PATH?.trim() || undefined,
+    claudePath: process.env.CLAUDE_CLI_PATH?.trim() || undefined,
+    allowedRoots: finalAllowedRoots,
+    agentOwnedRoots,
+    maxConcurrent: positiveInteger(
+      undefined,
+      process.env.DELEGATION_MAX_CONCURRENT,
+      DEFAULT_DELEGATION_MAX_CONCURRENT
+    ),
+    defaultTimeoutMinutes: positiveInteger(
+      undefined,
+      process.env.DELEGATION_DEFAULT_TIMEOUT_MINUTES,
+      DEFAULT_DELEGATION_TIMEOUT_MINUTES
+    ),
+    maxTimeoutMinutes: positiveInteger(
+      undefined,
+      process.env.DELEGATION_MAX_TIMEOUT_MINUTES,
+      DEFAULT_DELEGATION_MAX_TIMEOUT_MINUTES
+    ),
+    maxOutputBytes: positiveInteger(
+      undefined,
+      process.env.DELEGATION_MAX_OUTPUT_BYTES,
+      DEFAULT_DELEGATION_MAX_OUTPUT_BYTES
+    ),
+    artifactRetentionDays: positiveInteger(
+      undefined,
+      process.env.DELEGATION_ARTIFACT_RETENTION_DAYS,
+      DEFAULT_DELEGATION_ARTIFACT_RETENTION_DAYS
+    ),
+    allowedPrograms,
+  };
+}
+
 /**
  * Load voice-specific configuration without requiring an LLM API key.
  * This lets audio diagnostics run even when provider credentials are not ready.

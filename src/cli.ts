@@ -24,6 +24,7 @@ import { memoryCommand } from "./commands/memory";
 import { voiceCheckCommand } from "./commands/voiceCheck";
 import { voiceChatCommand } from "./commands/voiceChat";
 import { ttsCompareCommand } from "./commands/ttsCompare";
+import { delegatesCommand } from "./commands/delegates";
 
 const program = new Command();
 
@@ -73,6 +74,7 @@ program
 // ── chat ────────────────────────────────────────────────────────────
 program.addCommand(promptsCommand());
 program.addCommand(memoryCommand());
+program.addCommand(delegatesCommand());
 
 program
   .command("voice-check")
@@ -114,7 +116,7 @@ program
   .option("--listen-window <seconds>", "Short capture window for turn detection", "1.2")
   .option("--agent", "Enable agent/tool support for voice turns")
   .option("--tools <list>", "Comma-separated tool names for voice agent mode, or all/none")
-  .option("--sandbox <dir>", "Sandbox directory for voice agent file tools")
+  .option("--sandbox <dir>", "Override the agent workspace for voice file tools (default: LLMTEST_WORKSPACE_DIR or ~/.llmtest/workspace)")
   .option("--agent-max-steps <n>", "Maximum tool-use steps per voice turn", "20")
   .action(
     async (options: {
@@ -220,7 +222,7 @@ program
   .option("--model <model>", "Model override")
   .option("--tools <list>", "Comma-separated list of tool names to enable")
   .option("--docs <paths>", "Comma-separated list of document paths to load as context")
-  .option("--sandbox <dir>", "Sandbox directory for file tool operations")
+  .option("--sandbox <dir>", "Override the agent workspace for file tools (default: LLMTEST_WORKSPACE_DIR or ~/.llmtest/workspace)")
   .action(
     async (options: {
       key?: string;

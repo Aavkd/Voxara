@@ -1,7 +1,7 @@
 import * as readline from "readline";
 import * as fs from "fs";
 import * as path from "path";
-import { loadConfig } from "../config/loader";
+import { loadConfig, loadWorkspaceDir } from "../config/loader";
 import { runAgentLoop } from "../engine/agentLoop";
 import { createProvider } from "../providers/factory";
 import { ILLMProvider } from "../providers/ILLMProvider";
@@ -26,6 +26,11 @@ import {
   consolidateOnExit,
   startConsolidationSweep,
 } from "../memory/consolidation";
+import {
+  DeliveryRecord,
+  markDeliveriesDelivered,
+  peekPendingDeliveries,
+} from "../engine/deliveryQueue";
 import {
   appendVoiceTranscriptEvent,
   createSession,
@@ -700,54 +705,79 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
       }
 
       const turnIndex = state.beginTurn();
-      state.setStatus("listening", "listening");
-      printState(state);
 
-      const transcript = pendingTranscript || await listenForTranscript({
-        microphone,
-        sttProvider,
-        voice,
-        deviceName: options.device,
-        windowMs: listenWindowMs,
-        state,
-        log: voiceLog,
-        turnIndex,
-        shouldContinue: () => running && !muted,
-        handleCommands: () => drainCommands(commands, handleCommand),
-      });
-      pendingTranscript = undefined;
+      // Turn-boundary delivery drain (phase C1 §3.3): background results are
+      // announced between turns — at an idle listening boundary or right after
+      // an exchange — never over the user's or the assistant's speech. A
+      // pending barge-in transcript is an exchange in progress, so it wins.
+      const deliveries = pendingTranscript ? [] : peekPendingDeliveries();
+      let transcript: string | undefined;
+
+      if (deliveries.length > 0) {
+        transcript = buildDeliveryAnnouncementPrompt(deliveries, voice);
+        state.setStatus("thinking");
+        console.log(`[delivery] announcing ${deliveries.length} background update${deliveries.length > 1 ? "s" : ""}`);
+        appendVoiceTranscriptEvent(voiceLog, {
+          turnIndex,
+          type: "delivery",
+          text: transcript,
+          data: { ids: deliveries.map((d) => d.id) },
+        });
+      } else {
+        state.setStatus("listening", "listening");
+        printState(state);
+
+        transcript = pendingTranscript || await listenForTranscript({
+          microphone,
+          sttProvider,
+          voice,
+          deviceName: options.device,
+          windowMs: listenWindowMs,
+          state,
+          log: voiceLog,
+          turnIndex,
+          shouldContinue: () => running && !muted,
+          handleCommands: () => drainCommands(commands, handleCommand),
+          hasPendingDeliveries: () => peekPendingDeliveries().length > 0,
+        });
+        pendingTranscript = undefined;
+
+        if (!running || !transcript) {
+          continue;
+        }
+
+        state.setStatus("thinking");
+        appendVoiceTranscriptEvent(voiceLog, {
+          turnIndex,
+          type: "final_transcript",
+          text: transcript,
+        });
+        console.log(`You: ${transcript}`);
+
+        // Plain voice mode has no tools, so "retiens que…" cannot go through
+        // the memory_note tool; transcript detection covers it instead
+        // (spec §5.2). Agent mode is excluded — the tool path handles it there.
+        if (!agentMode && detectRememberIntent(transcript)) {
+          try {
+            appendInboxNote(transcript, "voice remember-intent detection");
+            appendVoiceTranscriptEvent(voiceLog, {
+              turnIndex,
+              type: "memory_note",
+              text: transcript,
+            });
+            console.log("[memory] saved to the memory inbox");
+          } catch (err) {
+            appendVoiceTranscriptEvent(voiceLog, {
+              turnIndex,
+              type: "error",
+              text: `memory note failed: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
+        }
+      }
 
       if (!running || !transcript) {
         continue;
-      }
-
-      state.setStatus("thinking");
-      appendVoiceTranscriptEvent(voiceLog, {
-        turnIndex,
-        type: "final_transcript",
-        text: transcript,
-      });
-      console.log(`You: ${transcript}`);
-
-      // Plain voice mode has no tools, so "retiens que…" cannot go through
-      // the memory_note tool; transcript detection covers it instead
-      // (spec §5.2). Agent mode is excluded — the tool path handles it there.
-      if (!agentMode && detectRememberIntent(transcript)) {
-        try {
-          appendInboxNote(transcript, "voice remember-intent detection");
-          appendVoiceTranscriptEvent(voiceLog, {
-            turnIndex,
-            type: "memory_note",
-            text: transcript,
-          });
-          console.log("[memory] saved to the memory inbox");
-        } catch (err) {
-          appendVoiceTranscriptEvent(voiceLog, {
-            turnIndex,
-            type: "error",
-            text: `memory note failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
       }
 
       activeTurn = agentMode
@@ -822,6 +852,13 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
       state.setStatus(result.interrupted ? "interrupted" : "listening", result.interrupted ? "interrupted" : "listening");
       console.log(`Assistant${result.interrupted ? " (interrupted)" : ""}: ${result.text.replace(/\n\[interrupted\]$/, "")}`);
       printMetrics(result.metrics);
+
+      // Only after the announcement turn settled: a crash mid-announcement
+      // leaves the records pending, to be re-announced next boundary. An
+      // interrupted announcement still counts — it lives in the history now.
+      if (deliveries.length > 0) {
+        markDeliveriesDelivered(deliveries.map((d) => d.id));
+      }
     }
   } catch (err) {
     state.setError(err);
@@ -983,6 +1020,12 @@ async function listenForTranscript(options: {
   turnIndex: number;
   shouldContinue: () => boolean;
   handleCommands: () => Promise<void>;
+  /**
+   * When true while nobody has started speaking, the idle capture is aborted
+   * and control returns to the main loop so it can announce pending
+   * deliveries (phase C1 §3.3). Never fires once speech onset is detected.
+   */
+  hasPendingDeliveries?: () => boolean;
 }): Promise<string | undefined> {
   // Cadence for no-speech level reports; the mic stream itself stays open the
   // whole time (closing and reopening it loses audio at every boundary).
@@ -999,11 +1042,20 @@ async function listenForTranscript(options: {
     // The stream blocks until speech is captured, so poll commands/mute from a
     // timer and abort the capture when the caller needs control back.
     const controller = new AbortController();
+    let speechInProgress = false;
+    let abortedForDelivery = false;
     const poll = setInterval(() => {
       options.handleCommands().catch((err) => {
         console.error(`Command failed: ${err instanceof Error ? err.message : String(err)}`);
       });
       if (!options.shouldContinue()) {
+        controller.abort();
+        return;
+      }
+      // Idle delivery boundary: a pending background result claims the turn,
+      // but only while nobody has started speaking.
+      if (!speechInProgress && options.hasPendingDeliveries?.()) {
+        abortedForDelivery = true;
         controller.abort();
       }
     }, 250);
@@ -1020,6 +1072,9 @@ async function listenForTranscript(options: {
         maxDurationMs: MAX_UTTERANCE_MS,
         noSpeechReportIntervalMs: reportIntervalMs,
         signal: controller.signal,
+        onSpeechStart: () => {
+          speechInProgress = true;
+        },
         onVadEvent: (event, levels) => {
           appendVoiceTranscriptEvent(options.log, {
             turnIndex: options.turnIndex,
@@ -1035,11 +1090,6 @@ async function listenForTranscript(options: {
           });
         },
         onNoSpeech: (levels) => {
-          if (options.state.snapshot().debug) {
-            console.log(
-              `\n[mic] no speech: peak RMS ${levels.maxEnergy.toFixed(4)}, noise floor ${levels.noiseFloor.toFixed(4)}, threshold ${levels.effectiveThreshold.toFixed(4)}`
-            );
-          }
           if (levels.maxEnergy < SILENT_CAPTURE_RMS) {
             consecutiveSilentWindows += 1;
             if (!warnedSilentStream && consecutiveSilentWindows >= 3) {
@@ -1061,6 +1111,12 @@ async function listenForTranscript(options: {
     }
 
     if (!utterance) {
+      // Hand control back so the main loop announces the pending deliveries.
+      // A capture that completed despite the abort race is kept and
+      // transcribed; the announcement then follows that turn.
+      if (abortedForDelivery) {
+        return undefined;
+      }
       continue;
     }
 
@@ -1323,9 +1379,7 @@ function handleToolsCommand(
 }
 
 function resolveVoiceSandbox(rawSandbox?: string): string {
-  const sandboxDir = rawSandbox
-    ? path.resolve(rawSandbox)
-    : path.join(process.cwd(), `llmtest-voice-agent-sandbox-${Date.now()}`);
+  const sandboxDir = rawSandbox ? path.resolve(rawSandbox) : loadWorkspaceDir();
 
   if (!fs.existsSync(sandboxDir)) {
     fs.mkdirSync(sandboxDir, { recursive: true });
@@ -1368,6 +1422,36 @@ function summarizeToolResult(result: unknown): string {
     return "(empty)";
   }
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+/**
+ * Synthetic turn injected when pending deliveries are announced at a turn
+ * boundary. Goes through the normal turn pipeline (so the model phrases the
+ * announcement in-persona and the result lands in conversation history), but
+ * is explicitly framed as system-originated so the model does not treat it as
+ * user speech. Exported for tests.
+ */
+export function buildDeliveryAnnouncementPrompt(
+  deliveries: DeliveryRecord[],
+  voice: VoiceConfig
+): string {
+  const lines = deliveries.map((d) => `- ${d.text}`).join("\n");
+  if (voice.language === "fr") {
+    return [
+      "[Message automatique du système — l'utilisateur n'a rien dit ; ne réponds pas comme s'il avait parlé.]",
+      "Des tâches en arrière-plan viennent de se terminer :",
+      lines,
+      "Annonce ces résultats à voix haute, brièvement et naturellement. " +
+        "Si une tâche a échoué, dis-le honnêtement en citant la raison exacte fournie ci-dessus — n'invente jamais d'explication.",
+    ].join("\n");
+  }
+  return [
+    "[Automated system message — the user did not speak; do not answer as if they had.]",
+    "Background tasks just finished:",
+    lines,
+    "Announce these results out loud, briefly and naturally. " +
+      "If a task failed, say so honestly and quote the exact reason given above — never invent an explanation.",
+  ].join("\n");
 }
 
 function userFriendlyAgentError(error: string, voice: VoiceConfig): string {

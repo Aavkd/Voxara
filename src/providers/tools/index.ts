@@ -11,6 +11,10 @@ import calculator from "./calculator";
 import getCurrentTime from "./getCurrentTime";
 import memoryRead from "./memoryRead";
 import memoryNote from "./memoryNote";
+import delegateTask from "./delegateTask";
+import delegateStatus from "./delegateStatus";
+import delegateApprove from "./delegateApprove";
+import delegateCancel from "./delegateCancel";
 
 /** Registry of all built-in tools, keyed by tool name. */
 export const TOOL_REGISTRY: Record<string, IToolProvider> = {
@@ -20,6 +24,10 @@ export const TOOL_REGISTRY: Record<string, IToolProvider> = {
   [getCurrentTime.name]: getCurrentTime,
   [memoryRead.name]: memoryRead,
   [memoryNote.name]: memoryNote,
+  [delegateTask.name]: delegateTask,
+  [delegateStatus.name]: delegateStatus,
+  [delegateApprove.name]: delegateApprove,
+  [delegateCancel.name]: delegateCancel,
 };
 
 /**
