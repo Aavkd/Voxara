@@ -519,7 +519,11 @@ export function startVoiceAgentAssistantTurn(options: VoiceAgentAssistantTurnOpt
           });
           options.onToolResult?.(toolCall);
         },
-        priorMessages
+        priorMessages,
+        {
+          sessionId: options.session.id,
+          conversationMessages: [...options.session.messages],
+        }
       );
 
       assistantText = loopResult.finalAnswer ||

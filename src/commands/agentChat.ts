@@ -380,6 +380,12 @@ export async function agentChatCommand(options: {
         (step: AgentStepResult) => {
           state.currentTrace = [...state.currentTrace, step];
           renderComponent();
+        },
+        undefined,
+        undefined,
+        {
+          sessionId: session.id,
+          conversationMessages: [...state.messages],
         }
       );
 

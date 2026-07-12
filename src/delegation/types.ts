@@ -14,6 +14,7 @@ export type DelegationCapability =
   | "external_action";
 
 export type ExecutionMode = "prepare" | "run";
+export type DelegationContextScope = "none" | "conversation";
 
 /** What the conversational agent asks for via delegate_task (§5.1). */
 export interface DelegationRequest {
@@ -26,6 +27,13 @@ export interface DelegationRequest {
   execution: ExecutionMode;
   timeoutMinutes?: number;
   sessionId?: string;
+  /** Trusted, app-supplied conversation window; never accepted from tool params. */
+  conversationTranscript?: string;
+  contextScope?: DelegationContextScope;
+  /** One-sentence focus pointer, bounded again by the service. */
+  contextHint?: string;
+  /** Memory episode ids already selected by the conversational layer. */
+  memoryRefs?: string[];
 }
 
 /** Immediate structured result of delegate_task (§5.1). */
@@ -34,6 +42,7 @@ export interface DispatchResult {
   status: "running" | "pending_approval" | "rejected";
   backend: BackendName | null;
   message: string;
+  warnings?: string[];
 }
 
 /** Compact progress event published by a running task (§3.1). */
@@ -63,6 +72,20 @@ export interface DelegationConfig {
   artifactRetentionDays: number;
   /** Program names allowed for manifest `execute` actions (C2c §6.2). */
   allowedPrograms: string[];
+  /** Optional background briefing provider/model overrides (C2d-3). */
+  briefProvider?: "google" | "github" | "ollama";
+  briefModel?: string;
+}
+
+export interface BriefingGeneratorInput {
+  task: string;
+  transcript: string;
+  hint?: string;
+}
+
+/** Injectable so delegation tests never make a network LLM call. */
+export interface BriefingGenerator {
+  generate(input: BriefingGeneratorInput): Promise<string>;
 }
 
 /** Result of a policy evaluation (§6). */

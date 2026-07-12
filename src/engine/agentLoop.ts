@@ -5,7 +5,7 @@
  */
 
 import { ILLMProvider } from "../providers/ILLMProvider";
-import { IToolProvider } from "../providers/tools/IToolProvider";
+import { IToolProvider, ToolExecutionContext } from "../providers/tools/IToolProvider";
 import { Message, AgentStepResult, ToolCallRecord } from "../types";
 
 /** Return value of a completed agent loop run. */
@@ -38,7 +38,8 @@ export async function runAgentLoop(
   maxSteps: number,
   onStep: (step: AgentStepResult) => void,
   onToolResult?: (toolCall: ToolCallRecord) => void,
-  priorMessages?: Message[]
+  priorMessages?: Message[],
+  toolContext?: ToolExecutionContext
 ): Promise<AgentLoopResult> {
   if (!provider.promptWithTools) {
     throw new Error(
@@ -85,7 +86,7 @@ export async function runAgentLoop(
       toolResult = `error: unknown tool "${toolName}"`;
     } else {
       try {
-        toolResult = await tool.execute(toolParams, sandboxDir);
+        toolResult = await tool.execute(toolParams, sandboxDir, toolContext);
       } catch (err: unknown) {
         toolResult = `error: ${err instanceof Error ? err.message : String(err)}`;
       }

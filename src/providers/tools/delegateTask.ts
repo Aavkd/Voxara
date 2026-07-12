@@ -15,6 +15,11 @@ import {
   DelegationCapability,
   ExecutionMode,
 } from "../../delegation/types";
+import {
+  formatConversationTranscript,
+  MAX_CONTEXT_HINT_CHARS,
+  MAX_MEMORY_REFS,
+} from "../../delegation/briefing";
 
 const delegateTask: IToolProvider = {
   name: "delegate_task",
@@ -83,13 +88,35 @@ const delegateTask: IToolProvider = {
         type: "number",
         description: "Optional time budget in minutes (clamped to the configured maximum).",
       },
+      context_scope: {
+        type: "string",
+        enum: ["none", "conversation"],
+        description:
+          "Use 'conversation' only when the task depends on decisions or content " +
+          "from the current conversation. The application will distil its own " +
+          "trusted session transcript; never paste conversation context into task.",
+      },
+      context_hint: {
+        type: "string",
+        maxLength: MAX_CONTEXT_HINT_CHARS,
+        description:
+          "Optional one-sentence focus pointer for the briefing, not a context dump.",
+      },
+      memory_refs: {
+        type: "array",
+        maxItems: MAX_MEMORY_REFS,
+        items: { type: "string" },
+        description:
+          "Optional ids of up to five memory episodes already found with memory_read.",
+      },
     },
     required: ["task", "capability"],
   },
 
   async execute(
     params: Record<string, unknown>,
-    sandboxDir: string
+    sandboxDir: string,
+    appContext
   ): Promise<unknown> {
     const task = String(params.task ?? "").trim();
     if (!task) {
@@ -111,6 +138,25 @@ const delegateTask: IToolProvider = {
         : sandboxDir;
     const execution: ExecutionMode =
       String(params.execution ?? "run") === "prepare" ? "prepare" : "run";
+    const contextScope =
+      String(params.context_scope ?? "none") === "conversation"
+        ? "conversation"
+        : "none";
+    const contextHint =
+      typeof params.context_hint === "string"
+        ? params.context_hint.trim().slice(0, MAX_CONTEXT_HINT_CHARS)
+        : undefined;
+    const memoryRefs = Array.isArray(params.memory_refs)
+      ? params.memory_refs
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, MAX_MEMORY_REFS)
+      : [];
+    const conversationTranscript =
+      contextScope === "conversation" && appContext?.conversationMessages
+        ? formatConversationTranscript(appContext.conversationMessages)
+        : undefined;
 
     try {
       const result = await getDelegationService().dispatch({
@@ -121,6 +167,11 @@ const delegateTask: IToolProvider = {
         webResearch,
         execution,
         timeoutMinutes,
+        sessionId: appContext?.sessionId,
+        contextScope,
+        contextHint,
+        memoryRefs,
+        conversationTranscript,
       });
       return JSON.stringify(result);
     } catch (err: unknown) {

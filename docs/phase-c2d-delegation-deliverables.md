@@ -3,13 +3,13 @@
 > **Status: designed 2026-07-12 from a live-session audit. Slice C2d-1
 > implemented 2026-07-12 and VALIDATED LIVE the same day (delegated program
 > creation in WORKSPACE worked end-to-end: direct writes, real paths
-> announced, deliverables verifiable in place). C2d-2/4/5 not started.
+> announced, deliverables verifiable in place). C2d-3 implemented and
+> validated by the automated suite on 2026-07-12. C2d-2/4/5 not started.
 > C2d-3 (§6) was REDESIGNED 2026-07-12 — the original flat `context` string
 > parameter was rejected (a long conversation would pollute the delegated
 > agent's context). The decided design is §6 as now written: a background
 > briefing pass producing a distilled structured brief, memory episodes as
-> source material, and a project journal for iterative builds. §6 is ready
-> to implement.
+> source material, and a project journal for iterative builds. §6 is shipped.
 > This document is the source of truth for the changes below and SUPERSEDES the
 > C2b/C2c behaviors it names in
 > [phase-c2-coding-agent-delegation.md](phase-c2-coding-agent-delegation.md).
@@ -422,8 +422,8 @@ violating entry is dropped with a doctor warning, not a crash).
 
 1. **C2d-1** agent-owned direct run + repo bootstrap + checkpoints +
    deliverable lists (unblocks S1/S2/S4 storage) — includes §11 hygiene.
-2. **C2d-3** contextual briefing — briefing pass + `memory_refs` + project
-   journal (makes S1/S4 content correct).
+2. **C2d-3 — shipped 2026-07-12:** contextual briefing — briefing pass +
+   `memory_refs` + project journal (makes S1/S4 content correct).
 3. **C2d-4** research publication (completes S2).
 4. **C2d-2** `delegate_apply` (completes the code-repo story).
 5. **C2d-5 + §9 prompt/delivery overhaul** (S3 config guidance, path

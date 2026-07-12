@@ -39,6 +39,7 @@ interface FakeBackendHandle {
   finish(outcome: Partial<BackendRunOutcome>): void;
   startCalls: number;
   lastWorkspace?: string;
+  lastTask?: string;
 }
 
 function createFakeBackend(): FakeBackendHandle {
@@ -50,9 +51,10 @@ function createFakeBackend(): FakeBackendHandle {
       async detect() {
         return { name: "codex" as const, available: true, version: "fake", executablePath: "fake" };
       },
-      async start(context) {
+      async start(context, task) {
         handle.startCalls++;
         handle.lastWorkspace = context.workspace;
+        handle.lastTask = task;
         const wait = new Promise<BackendRunOutcome>((resolve) => {
           resolveRun = resolve;
         });
@@ -243,6 +245,26 @@ describe("agent-owned direct run", () => {
     expect(fs.readFileSync(path.join(project, "index.js"), "utf-8")).toBe("step 1\n");
     fake.finish({});
     await tick();
+  });
+
+  test("project journal instruction reaches the delegate and its journal is committed", async () => {
+    const { service, fake, stateDir, agentRoot } = setup();
+    const result = await service.dispatch(writeRequest(agentRoot));
+
+    expect(fake.lastTask).toContain("read `DECISIONS.md`");
+    expect(fake.lastTask).toContain("append a dated entry");
+    fs.writeFileSync(
+      path.join(agentRoot, "DECISIONS.md"),
+      "# Decisions\n\n## 2026-07-12\n- Built the first slice.\n"
+    );
+    fake.finish({ summary: "journal updated" });
+    await tick();
+
+    const task = getTask(result.taskId!, stateDir)!;
+    expect(task.status).toBe("done");
+    expect(task.changedFiles).toContain(path.join(agentRoot, "DECISIONS.md"));
+    const committed = git(agentRoot, ["show", "--name-only", "--format=", task.taskCommit!]);
+    expect(committed).toContain("DECISIONS.md");
   });
 
   test("rejects a second writer anywhere in the same agent-owned root", async () => {

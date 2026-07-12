@@ -79,6 +79,14 @@ export interface TaskRecord {
   /** Absolute paths of files the run created/changed (bounded deliverable list, C2d §9). */
   changedFiles?: string[] | null;
 
+  // ── contextual briefing (C2d-3 §6) ────────────────────────────────
+  contextScope?: "none" | "conversation";
+  contextHint?: string | null;
+  memoryRefs?: string[];
+  briefFile?: string | null;
+  /** Bounded operational notes (brief failure, invalid episode ids, etc.). */
+  briefingWarnings?: string[];
+
   // ── external_action prepare/apply (C2c §3.3) ───────────────────────
   /** Which stage a running external_action task is in. */
   stage?: "prepare" | "apply" | null;

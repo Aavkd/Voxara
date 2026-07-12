@@ -4,6 +4,14 @@
  * Phase C.1 (E1: Agentic Testing)
  */
 
+import { Message } from "../../types";
+
+export interface ToolExecutionContext {
+  /** Trusted session metadata supplied by the application, never by the model. */
+  sessionId?: string;
+  conversationMessages?: Message[];
+}
+
 export interface IToolProvider {
   /** Unique tool name used in suite JSON and Gemini function declarations. */
   name: string;
@@ -26,6 +34,7 @@ export interface IToolProvider {
    */
   execute(
     params: Record<string, unknown>,
-    sandboxDir: string
+    sandboxDir: string,
+    context?: ToolExecutionContext
   ): Promise<unknown>;
 }

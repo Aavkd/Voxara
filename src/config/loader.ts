@@ -187,6 +187,29 @@ export function loadMemoryAgentConfig(mainConfig: AppConfig): AppConfig {
   }
 }
 
+/**
+ * Resolve the C2d-3 background briefing provider/model. Explicit briefing
+ * values override the memory-agent configuration; invalid overrides degrade
+ * to that same safe fallback rather than breaking delegation.
+ */
+export function loadDelegationBriefConfig(mainConfig: AppConfig): AppConfig {
+  const memoryConfig = loadMemoryAgentConfig(mainConfig);
+  const provider = process.env.DELEGATION_BRIEF_PROVIDER?.trim();
+  const model = process.env.DELEGATION_BRIEF_MODEL?.trim();
+
+  if (!provider && !model) {
+    return memoryConfig;
+  }
+  try {
+    return loadConfig({
+      provider: (provider as AppConfig["provider"]) || memoryConfig.provider,
+      model: model || memoryConfig.model,
+    });
+  } catch {
+    return memoryConfig;
+  }
+}
+
 const DEFAULT_MEMORY_EPISODE_RETENTION_DAYS = 90;
 
 /**
@@ -240,6 +263,8 @@ export interface DelegationEnvConfig {
   artifactRetentionDays: number;
   /** Program names allowed for manifest `execute` actions (C2c §6.2). */
   allowedPrograms: string[];
+  briefProvider?: AppConfig["provider"];
+  briefModel?: string;
 }
 
 /**
@@ -332,7 +357,16 @@ export function loadDelegationConfig(): DelegationEnvConfig {
       DEFAULT_DELEGATION_ARTIFACT_RETENTION_DAYS
     ),
     allowedPrograms,
+    briefProvider: normalizeProvider(process.env.DELEGATION_BRIEF_PROVIDER),
+    briefModel: process.env.DELEGATION_BRIEF_MODEL?.trim() || undefined,
   };
+}
+
+function normalizeProvider(raw: string | undefined): AppConfig["provider"] | undefined {
+  const value = raw?.trim().toLowerCase();
+  return value === "google" || value === "github" || value === "ollama"
+    ? value
+    : undefined;
 }
 
 /**

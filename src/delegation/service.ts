@@ -23,7 +23,11 @@ import {
 } from "../engine/taskStore";
 import { queueDelivery } from "../engine/deliveryQueue";
 import { ensureStateDir } from "../engine/statePaths";
-import { loadDelegationConfig } from "../config/loader";
+import {
+  loadConfig,
+  loadDelegationBriefConfig,
+  loadDelegationConfig,
+} from "../config/loader";
 import {
   BackendAvailability,
   BackendName,
@@ -63,6 +67,16 @@ import {
 import { createCodexBackend } from "./backends/codex";
 import { createClaudeBackend } from "./backends/claude";
 import { redactSecrets } from "./backends/common";
+import { readMemoryEntry } from "../memory/memoryStore";
+import { createProvider } from "../providers/factory";
+import {
+  buildBriefReferencePrompt,
+  createLlmBriefingGenerator,
+  MAX_CONTEXT_HINT_CHARS,
+  MAX_MEMORY_REFS,
+  sanitizeEpisode,
+  writeBriefFile,
+} from "./briefing";
 
 /** Characters of untrusted backend text surfaced in deliveries/status. */
 const MAX_SUMMARY_CHARS = 1200;
@@ -73,6 +87,9 @@ export interface DelegationServiceOptions {
   backends: ICodingAgentBackend[];
   /** State directory override for tests. */
   stateBaseDir?: string;
+  briefingGenerator?: import("./types").BriefingGenerator;
+  /** Memory root override for tests. */
+  memoryBaseDir?: string;
 }
 
 export interface TaskStatusSummary {
@@ -85,12 +102,16 @@ export class DelegationService {
   private readonly backends: Map<BackendName, ICodingAgentBackend>;
   private readonly stateBaseDir?: string;
   private readonly runningAgents = new Map<string, RunningAgent>();
+  private readonly briefingGenerator?: import("./types").BriefingGenerator;
+  private readonly memoryBaseDir?: string;
   private recovered = false;
 
   constructor(options: DelegationServiceOptions) {
     this.config = options.config;
     this.stateBaseDir = options.stateBaseDir;
     this.backends = new Map(options.backends.map((b) => [b.name, b]));
+    this.briefingGenerator = options.briefingGenerator;
+    this.memoryBaseDir = options.memoryBaseDir;
   }
 
   /** Detect every registered backend without starting a paid task (§8.1). */
@@ -319,6 +340,94 @@ export class DelegationService {
       }
     }
 
+    // C2d-3 §6: distil trusted session state and stage selected memory
+    // episodes. Briefing failures are explicit but never block dispatch.
+    const contextScope =
+      request.contextScope === "conversation" ? "conversation" : "none";
+    const contextHint =
+      request.contextHint?.trim().slice(0, MAX_CONTEXT_HINT_CHARS) || undefined;
+    const memoryRefs = [
+      ...new Set((request.memoryRefs ?? []).slice(0, MAX_MEMORY_REFS)),
+    ];
+    const briefingWarnings: string[] = [];
+    let briefFile: string | null = null;
+    let promptEpisodeFiles: string[] = [];
+
+    if (memoryRefs.length > 0) {
+      const episodeDir = path.join(artifactDir, "brief", "episodes");
+      fs.mkdirSync(episodeDir, { recursive: true });
+      for (const id of memoryRefs) {
+        const entry = readMemoryEntry(id, this.memoryBaseDir);
+        if (!entry || entry.type !== "episode") {
+          briefingWarnings.push(
+            `memory reference skipped: ${clip(id, 80)} is not an existing episode`
+          );
+          continue;
+        }
+        const destination = path.resolve(episodeDir, `${entry.id}.md`);
+        fs.writeFileSync(destination, sanitizeEpisode(entry.content), "utf-8");
+        promptEpisodeFiles.push(destination);
+      }
+    }
+
+    if (contextScope === "conversation") {
+      if (!request.conversationTranscript?.trim()) {
+        briefingWarnings.push(
+          "conversation briefing unavailable: the application supplied no session transcript"
+        );
+      } else if (!this.briefingGenerator) {
+        briefingWarnings.push(
+          "conversation briefing unavailable: no briefing generator is configured"
+        );
+      } else {
+        try {
+          const generated = await this.briefingGenerator.generate({
+            task: request.task,
+            transcript: request.conversationTranscript,
+            hint: contextHint,
+          });
+          briefFile = writeBriefFile(artifactDir, generated, request.task);
+        } catch (err: unknown) {
+          briefingWarnings.push(
+            `conversation briefing failed: ${clip(
+              err instanceof Error ? err.message : String(err),
+              240
+            )}`
+          );
+        }
+      }
+    }
+
+    let promptBriefFile = briefFile;
+    // Scratch backends can be limited to their cwd, so copy reference
+    // material into that scope while retaining the artifact originals.
+    if (request.webResearch) {
+      if (briefFile) {
+        const scratchBrief = path.resolve(runWorkspace, "brief.md");
+        fs.copyFileSync(briefFile, scratchBrief);
+        promptBriefFile = scratchBrief;
+      }
+      if (promptEpisodeFiles.length > 0) {
+        const scratchEpisodes = path.join(runWorkspace, "brief", "episodes");
+        fs.mkdirSync(scratchEpisodes, { recursive: true });
+        promptEpisodeFiles = promptEpisodeFiles.map((source) => {
+          const destination = path.resolve(
+            scratchEpisodes,
+            path.basename(source)
+          );
+          fs.copyFileSync(source, destination);
+          return destination;
+        });
+      }
+    }
+
+    backendTask = buildBriefReferencePrompt(
+      backendTask,
+      promptBriefFile,
+      promptEpisodeFiles,
+      runMode === "direct"
+    );
+
     const timeoutMinutes = resolveTimeoutMinutes(
       request.timeoutMinutes,
       this.config
@@ -360,6 +469,11 @@ export class DelegationService {
         manifestFile: null,
         manifestSummary: null,
         approvedAt: null,
+        contextScope,
+        contextHint: contextHint ?? null,
+        memoryRefs,
+        briefFile,
+        briefingWarnings,
       },
       this.stateBaseDir
     );
@@ -402,6 +516,7 @@ export class DelegationService {
         status: "rejected",
         backend: backend.name,
         message: `backend failed to start: ${message}`,
+        warnings: briefingWarnings.length > 0 ? briefingWarnings : undefined,
       };
     }
 
@@ -527,18 +642,25 @@ export class DelegationService {
         );
       });
 
+    const dispatchMessage =
+      request.capability === "workspace_write"
+        ? runMode === "direct"
+          ? `Dispatched to ${backend.name} directly in the agent workspace (timeout ${timeoutMinutes} min). ` +
+            "Changes are applied in place, committed for easy rollback, and the result will list the file paths."
+          : `Dispatched to ${backend.name} in an isolated Git worktree (timeout ${timeoutMinutes} min). ` +
+            "The user's main tree stays untouched; the result will report a reviewable diff."
+        : `Dispatched to ${backend.name} in a read-only sandbox (timeout ${timeoutMinutes} min).`;
+
     return {
       taskId,
       status: "running",
       backend: backend.name,
       message:
-        request.capability === "workspace_write"
-          ? runMode === "direct"
-            ? `Dispatched to ${backend.name} directly in the agent workspace (timeout ${timeoutMinutes} min). ` +
-              "Changes are applied in place, committed for easy rollback, and the result will list the file paths."
-            : `Dispatched to ${backend.name} in an isolated Git worktree (timeout ${timeoutMinutes} min). ` +
-              "The user's main tree stays untouched; the result will report a reviewable diff."
-          : `Dispatched to ${backend.name} in a read-only sandbox (timeout ${timeoutMinutes} min).`,
+        dispatchMessage +
+        (briefingWarnings.length > 0
+          ? ` Warning: ${briefingWarnings.join("; ")}.`
+          : ""),
+      warnings: briefingWarnings.length > 0 ? briefingWarnings : undefined,
     };
   }
 
@@ -560,6 +682,13 @@ export class DelegationService {
 
     if (task.approvalRequest) {
       lines.push(`Approval required: ${task.approvalRequest}`);
+    }
+
+    if (task.briefFile) {
+      lines.push(`Context brief: ${task.briefFile}`);
+    }
+    if (task.briefingWarnings && task.briefingWarnings.length > 0) {
+      lines.push(`Context warning: ${task.briefingWarnings.join("; ")}`);
     }
 
     if (task.manifestSummary) {
@@ -1184,6 +1313,15 @@ export function getDelegationService(): DelegationService {
     const envConfig = loadDelegationConfig();
     serviceInstance = new DelegationService({
       config: envConfig,
+      briefingGenerator: {
+        async generate(input) {
+          const briefConfig = loadDelegationBriefConfig(loadConfig());
+          return createLlmBriefingGenerator(
+            createProvider(briefConfig),
+            briefConfig.model
+          ).generate(input);
+        },
+      },
       backends: [
         createCodexBackend({ executablePath: envConfig.codexPath }),
         createClaudeBackend({ executablePath: envConfig.claudePath }),
