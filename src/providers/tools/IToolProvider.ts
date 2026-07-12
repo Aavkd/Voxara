@@ -5,11 +5,16 @@
  */
 
 import { Message } from "../../types";
+import type { ILLMProvider } from "../ILLMProvider";
 
 export interface ToolExecutionContext {
   /** Trusted session metadata supplied by the application, never by the model. */
   sessionId?: string;
   conversationMessages?: Message[];
+  /** Active conversational provider, injected by the agent loop. */
+  activeProvider?: ILLMProvider;
+  /** Optional injected fallback provider (primarily useful for tests). */
+  visionProvider?: ILLMProvider;
 }
 
 export interface IToolProvider {

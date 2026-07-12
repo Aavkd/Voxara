@@ -187,6 +187,25 @@ export function loadMemoryAgentConfig(mainConfig: AppConfig): AppConfig {
   }
 }
 
+/** Resolve the provider used to describe screenshots for a text-only main model. */
+export function loadControlVisionConfig(): AppConfig {
+  const rawProvider = (process.env.CONTROL_VISION_PROVIDER || "google")
+    .trim()
+    .toLowerCase();
+  const provider: AppConfig["provider"] =
+    rawProvider === "github" || rawProvider === "ollama" ? rawProvider : "google";
+  return loadConfig({ provider });
+}
+
+/** Maximum screenshot long edge sent to a vision model. */
+export function loadControlScreenshotMaxEdge(): number {
+  return positiveInteger(
+    undefined,
+    process.env.CONTROL_SCREENSHOT_MAX_EDGE,
+    1568
+  );
+}
+
 /**
  * Resolve the C2d-3 background briefing provider/model. Explicit briefing
  * values override the memory-agent configuration; invalid overrides degrade

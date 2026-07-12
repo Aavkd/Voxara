@@ -4,7 +4,7 @@
 
 import React from "react";
 import { Box, Text } from "ink";
-import { Message } from "../../types";
+import { Message, messageText } from "../../types";
 
 interface ChatMessageProps {
   message: Message;
@@ -28,7 +28,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       </Box>
       <Box marginLeft={2}>
         <Text>
-          {message.content}
+          {messageText(message)}
           {isStreaming && <Text color="cyan">▊</Text>}
         </Text>
       </Box>

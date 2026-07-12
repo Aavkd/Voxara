@@ -1,6 +1,7 @@
 # Phase C3: Computer Control — Screen Vision and Interactive Control
 
-> **Status: designed 2026-07-12, not yet implemented. Priority (decision
+> **Status: Slice C3a implemented and live-validated 2026-07-12.
+> Slices C3b/C3c remain designed. Priority (decision
 > 2026-07-12): C3 is implemented next — before the remaining delegation
 > slices C2d-2 and C2d-5 (C2d-1/3/4 are already shipped).** This document is
 > the source of truth for the feature. Coding agents implementing this phase must
@@ -236,6 +237,10 @@ type ContentPart =
 - `screenCapture.ts` shells a PowerShell snippet (System.Drawing
   `CopyFromScreen`, or `PrintWindow` for a single window by title match) —
   no new native npm dependency.
+- With several monitors, `target: "screen"` captures Windows' complete
+  `VirtualScreen` rectangle as one combined image. This includes displays
+  positioned at negative desktop coordinates. `target: "window"` captures
+  the selected window independently of the monitor on which it is displayed.
 - Output PNG is downscaled to a max long edge (default 1568 px) before
   base64-encoding, to bound token cost.
 - Captures are written to the task/session artifact area only when journaling
@@ -266,10 +271,22 @@ Behavior:
   asking Voxara to look; `CONTROL_VISION_PROVIDER=ollama` will later make it
   fully local.
 
+**Future enhancement — individual monitor selection:** extend `screen_view`
+with `target: "monitor"` and a stable monitor selector (index and/or display
+name). This would capture only the requested display, improving text clarity
+after downscaling and preventing unrelated content on other monitors from
+being included. Monitor enumeration and selection are deferred; the current
+`target: "screen"` behavior remains the full combined virtual desktop.
+
 **C3a acceptance:** in a live voice session with the Google provider,
 "regarde mon écran et dis-moi ce que tu vois" produces a correct spoken
 description; with provider=ollama the describe-fallback path works; all C2
 tests still pass.
+
+Implementation note (2026-07-12): C3a was live-validated with the Google
+provider. It persists the last five requested captures per session beside its
+JSONL journal so the observation is auditable; older capture artifacts are
+removed on each capture. CI continues to use fake captures and providers.
 
 ## 7. Slice C3b — Browser control
 

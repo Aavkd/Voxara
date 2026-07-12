@@ -17,6 +17,7 @@ import {
   ConversationTestCaseResult,
   ConversationTurnResult,
   Message,
+  messageText,
 } from "../types";
 
 export async function convoCommand(
@@ -202,7 +203,7 @@ async function runConversationTest(
     // Append the model response to the conversation history
     messages.push(chatResult.message);
 
-    const responseText = chatResult.message.content;
+    const responseText = messageText(chatResult.message);
 
     // Keyword assertions (case-insensitive)
     const matchedKeywords: string[] = [];

@@ -20,11 +20,13 @@ import {
   Message,
   ChatResult,
   AgentStepResult,
+  ContentPart,
 } from "../types";
 import type { IToolProvider } from "./tools/IToolProvider";
 
 export class GoogleProvider implements ILLMProvider {
   public readonly name = "Google Gemini";
+  public readonly supportsImages = true;
 
   private readonly client: GoogleGenerativeAI;
   private readonly config: AppConfig;
@@ -126,7 +128,7 @@ export class GoogleProvider implements ILLMProvider {
     const chatSession = model.startChat({ history });
 
     const startMs = Date.now();
-    const result = await chatSession.sendMessage(lastMessage.content);
+    const result = await chatSession.sendMessage(toGeminiParts(lastMessage.content));
     const latencyMs = Date.now() - startMs;
 
     const response = result.response;
@@ -168,7 +170,7 @@ export class GoogleProvider implements ILLMProvider {
 
     const startMs = Date.now();
     const streamResult = await chatSession.sendMessageStream(
-      lastMessage.content
+      toGeminiParts(lastMessage.content)
     );
 
     let fullText = "";
@@ -250,7 +252,7 @@ export class GoogleProvider implements ILLMProvider {
     const functionDeclarations = tools.map((t) => ({
       name: t.name,
       description: t.description,
-      parameters: t.parameters,
+      parameters: toGeminiFunctionParameters(t.parameters),
     }));
 
     // Cast to any[] — IToolProvider.parameters is a valid JSON Schema object at
@@ -271,7 +273,7 @@ export class GoogleProvider implements ILLMProvider {
     const lastMessage = messages[messages.length - 1];
 
     const chatSession = model.startChat({ history });
-    const result = await chatSession.sendMessage(lastMessage.content);
+    const result = await chatSession.sendMessage(toGeminiParts(lastMessage.content));
 
     const response = result.response;
     const usage = response.usageMetadata;
@@ -369,11 +371,52 @@ export class GoogleProvider implements ILLMProvider {
 /**
  * Convert our Message type to the Gemini SDK's Content format.
  */
-function toGeminiMessage(msg: Message): { role: string; parts: { text: string }[] } {
+function toGeminiMessage(msg: Message): { role: string; parts: GeminiPart[] } {
   return {
     role: msg.role === "model" ? "model" : "user",
-    parts: [{ text: msg.content }],
+    parts: toGeminiParts(msg.content),
   };
+}
+
+type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
+/** Exported for deterministic provider-payload tests without network calls. */
+export function toGeminiParts(content: string | ContentPart[]): GeminiPart[] {
+  if (typeof content === "string") {
+    return [{ text: content }];
+  }
+  return content.map((part) =>
+    part.type === "text"
+      ? { text: part.text }
+      : { inlineData: { mimeType: part.mimeType, data: part.base64 } }
+  );
+}
+
+/**
+ * Gemini function declarations use a restricted OpenAPI schema dialect.
+ * Strip JSON Schema keywords rejected by the API, including in nested objects,
+ * so one provider-agnostic tool cannot invalidate the entire tool request.
+ */
+export function toGeminiFunctionParameters(
+  schema: Record<string, unknown>
+): Record<string, unknown> {
+  return stripUnsupportedSchemaKeywords(schema) as Record<string, unknown>;
+}
+
+function stripUnsupportedSchemaKeywords(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripUnsupportedSchemaKeywords);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "additionalProperties")
+      .map(([key, entry]) => [key, stripUnsupportedSchemaKeywords(entry)])
+  );
 }
 
 /**

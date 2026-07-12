@@ -13,7 +13,7 @@ import {
   createSession,
 } from "../session/session";
 import { ChatInterface, SessionPrompt } from "../display";
-import { Message, Session, AppConfig } from "../types";
+import { Message, Session, AppConfig, messageText } from "../types";
 import {
   ensureMemoryLayout,
   buildMemoryPreambleMessages,
@@ -117,7 +117,7 @@ async function startChat(config: AppConfig, session: Session): Promise<void> {
     return {
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      fullText: result.message.content,
+      fullText: messageText(result.message),
     };
   };
 

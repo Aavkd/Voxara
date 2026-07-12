@@ -86,7 +86,10 @@ export async function runAgentLoop(
       toolResult = `error: unknown tool "${toolName}"`;
     } else {
       try {
-        toolResult = await tool.execute(toolParams, sandboxDir, toolContext);
+        toolResult = await tool.execute(toolParams, sandboxDir, {
+          ...toolContext,
+          activeProvider: provider,
+        });
       } catch (err: unknown) {
         toolResult = `error: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -103,9 +106,11 @@ export async function runAgentLoop(
     onToolResult?.(toolCallRecord);
 
     // Append the tool result to message history so the model can continue
-    const toolResultContent =
-      typeof toolResult === "string"
-        ? toolResult
+    const imageResult = asImageToolResult(toolResult);
+    const toolResultContent = typeof toolResult === "string"
+      ? toolResult
+      : imageResult
+        ? ""
         : JSON.stringify(toolResult);
 
     messages.push({
@@ -115,7 +120,19 @@ export async function runAgentLoop(
     });
     messages.push({
       role: "user",
-      content: `[tool_result: ${toolName}] ${toolResultContent}`,
+      content: imageResult
+        ? [
+            {
+              type: "text",
+              text: `[tool_result: ${toolName}]${imageResult.note ? ` ${imageResult.note}` : ""}`,
+            },
+            {
+              type: "image",
+              mimeType: imageResult.mimeType,
+              base64: imageResult.base64,
+            },
+          ]
+        : `[tool_result: ${toolName}] ${toolResultContent}`,
       timestamp: Date.now(),
     });
   }
@@ -127,4 +144,24 @@ export async function runAgentLoop(
     steps: stepIndex,
     error: `max steps exceeded (limit: ${maxSteps})`,
   };
+}
+
+interface ImageToolResult {
+  kind: "image";
+  mimeType: "image/png" | "image/jpeg";
+  base64: string;
+  note?: string;
+}
+
+function asImageToolResult(value: unknown): ImageToolResult | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<ImageToolResult>;
+  if (
+    candidate.kind !== "image" ||
+    (candidate.mimeType !== "image/png" && candidate.mimeType !== "image/jpeg") ||
+    typeof candidate.base64 !== "string"
+  ) {
+    return null;
+  }
+  return candidate as ImageToolResult;
 }

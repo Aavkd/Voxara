@@ -16,6 +16,7 @@ import {
   Message,
   ChatResult,
   AgentStepResult,
+  messageText,
 } from "../types";
 import type { IToolProvider } from "./tools/IToolProvider";
 
@@ -23,6 +24,7 @@ const GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com";
 
 export class GitHubProvider implements ILLMProvider {
   public readonly name = "GitHub Copilot (Models)";
+  public readonly supportsImages = false;
 
   private readonly client: OpenAI;
   private readonly config: AppConfig;
@@ -338,7 +340,7 @@ function toOpenAIMessage(
 ): OpenAI.Chat.ChatCompletionMessageParam {
   return {
     role: msg.role === "model" ? "assistant" : "user",
-    content: msg.content,
+    content: messageText(msg),
   };
 }
 

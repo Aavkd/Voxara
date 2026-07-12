@@ -24,6 +24,7 @@ import {
   Session,
   ValidationResult,
   VoiceConfig,
+  messageText,
 } from "../src/types";
 
 describe("StreamingTextChunker", () => {
@@ -318,7 +319,7 @@ describe("voice assistant turn", () => {
     expect(seen.at(-1)?.content).toBe("Deuxième message");
     // The session stores the raw transcript, not the wrapped prompt.
     expect(session.messages.some((m) => m.content === "Deuxième message")).toBe(true);
-    expect(session.messages.some((m) => m.content.includes("instructions"))).toBe(false);
+    expect(session.messages.some((m) => messageText(m).includes("instructions"))).toBe(false);
   });
 
   it("writes a fallback inbox note when a remember request skips memory_note", async () => {

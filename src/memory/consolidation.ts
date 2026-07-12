@@ -14,7 +14,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { AppConfig, Message } from "../types";
+import { AppConfig, Message, messageText } from "../types";
 import { ILLMProvider } from "../providers/ILLMProvider";
 import { createProvider } from "../providers/factory";
 import {
@@ -409,7 +409,7 @@ export function parseVoiceSessionFile(filePath: string): SessionInput | null {
 export function formatMessages(messages: Message[]): string {
   return messages
     .map((message) => {
-      let content = message.content;
+      let content = messageText(message);
       const wrapped = content.match(/^Voice conversation instructions:[\s\S]*?User transcript:\r?\n([\s\S]*)$/);
       if (wrapped) {
         content = wrapped[1];

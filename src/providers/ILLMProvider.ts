@@ -19,6 +19,9 @@ export interface ILLMProvider {
   /** Human-readable provider name (e.g., "Google Gemini"). */
   name: string;
 
+  /** Whether conversational messages may contain image content parts. */
+  readonly supportsImages?: boolean;
+
   /** Validate the configured API key. */
   validate(): Promise<ValidationResult>;
 

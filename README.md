@@ -83,6 +83,23 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:8b
 ```
 
+### Vision de l’écran (C3a)
+
+`screen_view` est disponible dans les conversations agent sur Windows. Avec
+Gemini, l’image est lue directement par le modèle actif. Avec un modèle texte
+local comme Ollama, elle est décrite par `CONTROL_VISION_PROVIDER` (Google par
+défaut) :
+
+```env
+CONTROL_VISION_PROVIDER=google
+CONTROL_SCREENSHOT_MAX_EDGE=1568
+CONTROL_JOURNAL_RETENTION_DAYS=30
+```
+
+Lancez `voice-chat --agent --tools all`, puis demandez par exemple : « regarde
+mon écran et dis-moi ce que tu vois ». Les captures demandées peuvent quitter
+la machine lorsqu’un fournisseur vision cloud est configuré.
+
 Vérifiez la configuration, puis démarrez une conversation :
 
 ```powershell

@@ -2,7 +2,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { Message } from "../types";
+import { Message, messageText } from "../types";
 import { ILLMProvider } from "../providers/ILLMProvider";
 import { redactSecrets } from "./backends/common";
 import { BriefingGenerator, BriefingGeneratorInput } from "./types";
@@ -26,7 +26,7 @@ const REQUIRED_SECTIONS = [
 export function formatConversationTranscript(messages: Message[]): string {
   const transcript = messages
     .filter((message) => message.role === "user" || message.role === "model")
-    .map((message) => `${message.role === "user" ? "Utilisateur" : "Voxara"}: ${message.content}`)
+    .map((message) => `${message.role === "user" ? "Utilisateur" : "Voxara"}: ${messageText(message)}`)
     .join("\n\n");
   if (transcript.length <= MAX_CONVERSATION_TRANSCRIPT_CHARS) {
     return transcript;

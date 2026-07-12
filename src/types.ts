@@ -5,11 +5,28 @@
 
 // ── Core / Base Types ─────────────────────────────────────────────
 
+/** Provider-generic content carried by a conversational message. */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mimeType: "image/png" | "image/jpeg"; base64: string };
+
+export type MessageContent = string | ContentPart[];
+
 /** A single message in a chat conversation. */
 export interface Message {
   role: "user" | "model";
-  content: string;
+  content: MessageContent;
   timestamp: number;
+}
+
+/** Flatten the textual parts of a message for text-only consumers/providers. */
+export function messageText(message: Pick<Message, "content">): string {
+  return typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((part): part is Extract<ContentPart, { type: "text" }> => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
 }
 
 /** Input parameters for a single prompt request. */

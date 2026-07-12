@@ -15,6 +15,7 @@ import delegateTask from "./delegateTask";
 import delegateStatus from "./delegateStatus";
 import delegateApprove from "./delegateApprove";
 import delegateCancel from "./delegateCancel";
+import screenView from "./screenView";
 
 /** Registry of all built-in tools, keyed by tool name. */
 export const TOOL_REGISTRY: Record<string, IToolProvider> = {
@@ -28,6 +29,7 @@ export const TOOL_REGISTRY: Record<string, IToolProvider> = {
   [delegateStatus.name]: delegateStatus,
   [delegateApprove.name]: delegateApprove,
   [delegateCancel.name]: delegateCancel,
+  [screenView.name]: screenView,
 };
 
 /**

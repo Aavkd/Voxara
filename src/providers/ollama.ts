@@ -12,6 +12,7 @@ import {
   PromptResult,
   Message,
   ChatResult,
+  messageText,
 } from "../types";
 
 interface OllamaChatMessage {
@@ -37,6 +38,7 @@ interface OllamaTagsResponse {
 
 export class OllamaProvider implements ILLMProvider {
   public readonly name = "Ollama";
+  public readonly supportsImages = false;
 
   private readonly config: AppConfig;
   private readonly baseUrl: string;
@@ -207,7 +209,7 @@ function assertUserFinalMessage(messages: Message[], methodName: string): void {
 function toOllamaMessage(msg: Message): OllamaChatMessage {
   return {
     role: msg.role === "model" ? "assistant" : "user",
-    content: msg.content,
+    content: messageText(msg),
   };
 }
 

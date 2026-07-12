@@ -51,6 +51,7 @@ import {
   ToolCallRecord,
   VoiceConfig,
   VoiceTranscriptLog,
+  messageText,
 } from "../types";
 
 interface VoiceChatOptions {
@@ -356,7 +357,7 @@ export function startVoiceAssistantTurn(options: VoiceAssistantTurnOptions): Voi
 
     const assistantText = interrupted
       ? `${partialAssistantText.trim()}\n[interrupted]`.trim()
-      : streamResult?.message.content || partialAssistantText;
+      : (streamResult ? messageText(streamResult.message) : "") || partialAssistantText;
 
     const assistantMessage: Message = {
       role: "model",
