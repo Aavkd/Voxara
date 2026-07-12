@@ -6,8 +6,16 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { parseCodexEventLine, createCodexBackend } from "../src/delegation/backends/codex";
-import { parseClaudeEventLine, createClaudeBackend } from "../src/delegation/backends/claude";
+import {
+  codexSandboxFor,
+  parseCodexEventLine,
+  createCodexBackend,
+} from "../src/delegation/backends/codex";
+import {
+  claudeToolListsFor,
+  parseClaudeEventLine,
+  createClaudeBackend,
+} from "../src/delegation/backends/claude";
 import { BackendRunContext, DelegationProgressEvent } from "../src/delegation/types";
 
 const FIXTURES = path.join(__dirname, "fixtures", "delegation");
@@ -96,6 +104,26 @@ describe("parseClaudeEventLine", () => {
 
   test("malformed lines become bounded progress, never a throw", () => {
     expect(parseClaudeEventLine("garbage").progressText).toContain("unparsable");
+  });
+});
+
+describe("research report write boundary", () => {
+  test("Codex can write only for research scratch runs, not ordinary read-only runs", () => {
+    expect(codexSandboxFor({ capability: "read_only", webResearch: false })).toBe(
+      "read-only"
+    );
+    expect(codexSandboxFor({ capability: "read_only", webResearch: true })).toBe(
+      "workspace-write"
+    );
+  });
+
+  test("Claude research can write a report but still cannot execute commands", () => {
+    const tools = claudeToolListsFor({
+      capability: "read_only",
+      webResearch: true,
+    });
+    expect(tools.allowedTools).toEqual(expect.arrayContaining(["WebSearch", "Write"]));
+    expect(tools.disallowedTools).toContain("Bash");
   });
 });
 

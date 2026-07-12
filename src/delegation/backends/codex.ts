@@ -34,6 +34,17 @@ export interface CodexBackendOptions {
   executablePath?: string;
 }
 
+/** Sandbox selection keeps ordinary readers read-only while allowing an
+ * isolated research scratch run to create its report deliverable. */
+export function codexSandboxFor(context: {
+  capability: string;
+  webResearch: boolean;
+}): "read-only" | "workspace-write" {
+  return context.capability === "read_only" && !context.webResearch
+    ? "read-only"
+    : "workspace-write";
+}
+
 interface ParsedCodexEvent {
   sessionId?: string;
   progressText?: string;
@@ -146,8 +157,9 @@ export function createCodexBackend(
 
       // workspace_write → isolated worktree cwd; external_action prepare →
       // plan-directory cwd. Both need writes inside cwd only.
-      const sandbox =
-        context.capability === "read_only" ? "read-only" : "workspace-write";
+      // Research has read-only access to user data, but its isolated scratch
+      // cwd is intentionally writable so the full report can be published.
+      const sandbox = codexSandboxFor(context);
       const args = [
         "exec",
         "--json",

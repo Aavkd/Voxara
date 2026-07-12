@@ -77,6 +77,11 @@ import {
   sanitizeEpisode,
   writeBriefFile,
 } from "./briefing";
+import {
+  buildResearchPrompt,
+  publishScratchResearch,
+  snapshotScratchFiles,
+} from "./researchPublication";
 
 /** Characters of untrusted backend text surfaced in deliveries/status. */
 const MAX_SUMMARY_CHARS = 1200;
@@ -200,6 +205,19 @@ export class DelegationService {
       };
     }
     const backend = selection.backend;
+
+    const researchPublishRoot = request.webResearch
+      ? this.config.agentOwnedRoots[0] ?? null
+      : null;
+    if (request.webResearch && !researchPublishRoot) {
+      return {
+        taskId: null,
+        status: "rejected",
+        backend: null,
+        message:
+          "web_research requires a configured agent-owned root so its report can be published.",
+      };
+    }
 
     // Backend detection awaited above — re-check the policy against the
     // current task list so two near-simultaneous dispatches cannot both slip
@@ -427,6 +445,15 @@ export class DelegationService {
       promptEpisodeFiles,
       runMode === "direct"
     );
+    if (request.webResearch) {
+      backendTask = buildResearchPrompt(backendTask);
+    }
+
+    // Everything present now was staged by trusted application code. Only
+    // files added after this point are eligible for research publication.
+    const scratchBaseline = request.webResearch
+      ? snapshotScratchFiles(runWorkspace)
+      : null;
 
     const timeoutMinutes = resolveTimeoutMinutes(
       request.timeoutMinutes,
@@ -556,7 +583,47 @@ export class DelegationService {
           let taskCommit: string | null = null;
           let changedFiles: string[] | null = null;
           let deliveryDiffNote = "";
-          if (runMode === "direct" && repoRoot && baseCommit) {
+          if (
+            request.webResearch &&
+            researchPublishRoot &&
+            scratchBaseline
+          ) {
+            const publication = publishScratchResearch({
+              scratchDir: runWorkspace,
+              agentOwnedRoot: researchPublishRoot,
+              task: request.task,
+              summary: clip(
+                redactSecrets(outcome.summary),
+                MAX_SUMMARY_CHARS
+              ),
+              baseline: scratchBaseline,
+            });
+            if (!publication.ok) {
+              const reason = `research report publication failed: ${publication.error ?? "unknown error"}`;
+              updateTask(
+                taskId,
+                {
+                  status: "failed",
+                  completedAt: new Date().toISOString(),
+                  error: clip(reason, MAX_SUMMARY_CHARS),
+                  backendSessionId: outcome.backendSessionId ?? null,
+                },
+                this.stateBaseDir
+              );
+              queueDelivery(
+                "task_failure",
+                taskId,
+                `La tâche déléguée ${taskId} (${backend.name}) a terminé sa recherche mais le rapport n'a pas pu être publié : ${clip(publication.error ?? "raison inconnue", MAX_DELIVERY_SUMMARY_CHARS)}`,
+                this.stateBaseDir
+              );
+              return;
+            }
+            changedFiles = publication.paths;
+            deliveryDiffNote =
+              ` Rapport(s) publié(s) dans ton espace de travail : ` +
+              formatFileList(publication.paths) +
+              ".";
+          } else if (runMode === "direct" && repoRoot && baseCommit) {
             const changes = collectDirectRunChanges(
               repoRoot,
               baseCommit,
@@ -643,7 +710,10 @@ export class DelegationService {
       });
 
     const dispatchMessage =
-      request.capability === "workspace_write"
+      request.webResearch
+        ? `Dispatched to ${backend.name} in an isolated research scratch workspace (timeout ${timeoutMinutes} min). ` +
+          "The full report will be published into the agent workspace and its path will be reported."
+        : request.capability === "workspace_write"
         ? runMode === "direct"
           ? `Dispatched to ${backend.name} directly in the agent workspace (timeout ${timeoutMinutes} min). ` +
             "Changes are applied in place, committed for easy rollback, and the result will list the file paths."
@@ -730,6 +800,11 @@ export class DelegationService {
           `Rollback (user decision only): git revert ${task.taskCommit.slice(0, 10)} in ${task.workspace}`
         );
       }
+    } else if (task.webResearch && task.changedFiles?.length) {
+      lines.push(
+        "Published research files:",
+        ...task.changedFiles.slice(0, 10).map((f) => `  - ${f}`)
+      );
     } else if (task.diffSummary) {
       lines.push(
         "Changes (made in an isolated worktree — NOT applied to the main tree):",

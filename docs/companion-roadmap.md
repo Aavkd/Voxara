@@ -53,9 +53,14 @@ assistant.
 
 **c) Local machine control.** Open an app or file, adjust system volume.
 
-- PowerShell-backed actions on Windows.
-- Must go through an explicit allowlist (same spirit as the file-tool sandbox):
-  the tool exposes named actions, never arbitrary shell execution.
+- ~~PowerShell-backed actions on Windows.~~
+- ~~Must go through an explicit allowlist (same spirit as the file-tool sandbox):
+  the tool exposes named actions, never arbitrary shell execution.~~
+- **Superseded (2026-07-12)** by
+  [phase-c3-computer-control.md](phase-c3-computer-control.md): the allowlist
+  design was rejected as too deterministic for the agentic architecture.
+  Machine control is now general typed intents governed by an effect-level
+  policy (observe / reversible / sensitive) with configurable trust levels.
 
 ### 2.2 Contextual session opening — priority 1
 
@@ -100,6 +105,11 @@ The step from "I launch a session" to "it is always there":
   "c'est bon, merci" dismissal, or both.
 
 ### 2.5 Vision — priority 4
+
+> **Specified (2026-07-12):** realized as slice C3a of
+> [phase-c3-computer-control.md](phase-c3-computer-control.md), which also
+> covers interactive browser/desktop control (C3b/C3c). That spec is the
+> source of truth for this item.
 
 "Regarde mon écran et dis-moi ce qui cloche."
 

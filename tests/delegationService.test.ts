@@ -218,13 +218,73 @@ describe("DelegationService.dispatch", () => {
   });
 
   test("web research runs in an empty per-task scratch workspace, not a user root", async () => {
-    const { service, fake, workspaceRoot } = setup();
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "voxara-reports-"));
+    const { service, fake } = setup({
+      allowedRoots: [workspaceRoot],
+      agentOwnedRoots: [workspaceRoot],
+    });
     await service.dispatch(request(workspaceRoot, { webResearch: true, workspace: undefined }));
 
     expect(fake.lastWorkspace).toBeDefined();
     expect(fake.lastWorkspace).not.toBe(workspaceRoot);
     expect(fake.lastWorkspace!).toContain("scratch");
     expect(fs.readdirSync(fake.lastWorkspace!)).toEqual([]);
+    expect(fake.lastTask).toContain("Write your full report to `report.md`");
+  });
+
+  test("web research publishes scratch files and reports their absolute paths", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "voxara-reports-"));
+    const { service, fake, stateDir } = setup({
+      allowedRoots: [workspaceRoot],
+      agentOwnedRoots: [workspaceRoot],
+    });
+    const result = await service.dispatch(
+      request(workspaceRoot, {
+        task: "Research battery storage trends",
+        webResearch: true,
+        workspace: undefined,
+      })
+    );
+
+    fs.writeFileSync(path.join(fake.lastWorkspace!, "report.md"), "# Full report\n");
+    fake.finish({ ok: true, summary: "Short abstract." });
+    await tick();
+
+    const task = getTask(result.taskId!, stateDir);
+    expect(task?.status).toBe("done");
+    expect(task?.changedFiles).toHaveLength(1);
+    expect(path.isAbsolute(task!.changedFiles![0])).toBe(true);
+    expect(task!.changedFiles![0]).toContain(path.join("rapports", "2026-"));
+    expect(fs.readFileSync(task!.changedFiles![0], "utf-8")).toContain("Full report");
+
+    const delivery = listDeliveries(stateDir)[0];
+    expect(delivery.text).toContain(task!.changedFiles![0]);
+    expect(service.status(result.taskId!).text).toContain(task!.changedFiles![0]);
+  });
+
+  test("a file-less research run publishes its bounded summary as Markdown", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "voxara-reports-"));
+    const { service, fake, stateDir } = setup({
+      allowedRoots: [workspaceRoot],
+      agentOwnedRoots: [workspaceRoot],
+    });
+    const result = await service.dispatch(
+      request(workspaceRoot, {
+        task: "Research quiet heat pumps",
+        webResearch: true,
+        workspace: undefined,
+      })
+    );
+
+    fake.finish({ ok: true, summary: "The bounded research summary." });
+    await tick();
+
+    const report = getTask(result.taskId!, stateDir)?.changedFiles?.[0];
+    expect(report).toBeDefined();
+    expect(report).toMatch(/\.md$/);
+    expect(fs.readFileSync(report!, "utf-8")).toContain(
+      "The bounded research summary."
+    );
   });
 });
 

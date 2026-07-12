@@ -4,7 +4,11 @@
 > implemented 2026-07-12 and VALIDATED LIVE the same day (delegated program
 > creation in WORKSPACE worked end-to-end: direct writes, real paths
 > announced, deliverables verifiable in place). C2d-3 implemented and
-> validated by the automated suite on 2026-07-12. C2d-2/4/5 not started.
+> validated by the automated suite on 2026-07-12. C2d-4 implemented and
+> validated by the automated suite on 2026-07-12. C2d-2/5 not started —
+> **paused (decision 2026-07-12): phase C3
+> ([phase-c3-computer-control.md](phase-c3-computer-control.md)) is
+> implemented before C2d-2 and C2d-5.**
 > C2d-3 (§6) was REDESIGNED 2026-07-12 — the original flat `context` string
 > parameter was rejected (a long conversation would pollute the delegated
 > agent's context). The decided design is §6 as now written: a background
@@ -424,10 +428,11 @@ violating entry is dropped with a doctor warning, not a crash).
    deliverable lists (unblocks S1/S2/S4 storage) — includes §11 hygiene.
 2. **C2d-3 — shipped 2026-07-12:** contextual briefing — briefing pass +
    `memory_refs` + project journal (makes S1/S4 content correct).
-3. **C2d-4** research publication (completes S2).
-4. **C2d-2** `delegate_apply` (completes the code-repo story).
+3. **C2d-4 — shipped 2026-07-12:** research publication (completes S2).
+4. **C2d-2** `delegate_apply` (completes the code-repo story) — *after
+   phase C3 (decision 2026-07-12).*
 5. **C2d-5 + §9 prompt/delivery overhaul** (S3 config guidance, path
-   honesty everywhere).
+   honesty everywhere) — *after phase C3 (decision 2026-07-12).*
 
 Each slice lands with its tests and keeps every earlier acceptance criterion
 green.

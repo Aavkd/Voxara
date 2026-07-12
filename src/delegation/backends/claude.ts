@@ -80,8 +80,15 @@ export function claudeToolListsFor(context: {
   }
   if (context.webResearch) {
     return {
-      allowedTools: [...READ_ONLY_ALLOWED_TOOLS, ...WEB_RESEARCH_EXTRA_TOOLS],
-      disallowedTools: READ_ONLY_DISALLOWED_TOOLS,
+      // Writes are limited to the per-task scratch cwd by the service. Bash
+      // remains unavailable: research needs report files, not execution.
+      allowedTools: [
+        ...READ_ONLY_ALLOWED_TOOLS,
+        ...WEB_RESEARCH_EXTRA_TOOLS,
+        "Edit",
+        "Write",
+      ],
+      disallowedTools: ["Bash", "NotebookEdit", "KillShell"],
     };
   }
   return {
