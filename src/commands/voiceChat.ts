@@ -15,6 +15,18 @@ import { VoiceConversationState } from "../audio/conversationState";
 import { InterruptController } from "../audio/interruptController";
 import { renderPrompt, validatePrompts } from "../prompts/promptLoader";
 import {
+  ensureMemoryLayout,
+  buildMemoryContextBlock,
+  buildMemoryPreambleMessages,
+  readMemoryIndex,
+  appendInboxNote,
+  detectRememberIntent,
+} from "../memory/memoryStore";
+import {
+  consolidateOnExit,
+  startConsolidationSweep,
+} from "../memory/consolidation";
+import {
   appendVoiceTranscriptEvent,
   createSession,
   createVoiceTranscriptLog,
@@ -298,7 +310,13 @@ export function startVoiceAssistantTurn(options: VoiceAssistantTurnOptions): Voi
   const done = (async (): Promise<VoiceAssistantTurnResult> => {
     let streamResult: ChatResult | undefined;
     try {
-      streamResult = await options.provider.streamChat(options.session.messages, (chunk) => {
+      // Transient memory preamble: read fresh each turn, sent to the provider
+      // only, never persisted in the session history.
+      const messagesWithMemory = [
+        ...buildMemoryPreambleMessages(),
+        ...options.session.messages,
+      ];
+      streamResult = await options.provider.streamChat(messagesWithMemory, (chunk) => {
         if (interrupted) {
           return;
         }
@@ -397,10 +415,23 @@ export function startVoiceAgentAssistantTurn(options: VoiceAgentAssistantTurnOpt
   let inputTokens = 0;
   let outputTokens = 0;
 
-  const agentPrompt = buildVoiceAgentPrompt(options.userTranscript, options.voice);
+  // Tier-1 working memory for agent turns: prior session messages are passed
+  // to the loop behind a transient instruction preamble. The session itself
+  // stores only raw transcripts and answers — instructions and memory are
+  // rebuilt fresh each turn, never persisted.
+  const priorMessages: Message[] = [
+    {
+      role: "user",
+      content: buildVoiceAgentInstructions(options.voice),
+      timestamp: now(),
+    },
+    { role: "model", content: "Understood.", timestamp: now() },
+    ...options.session.messages,
+  ];
+
   const userMessage: Message = {
     role: "user",
-    content: agentPrompt,
+    content: options.userTranscript,
     timestamp: now(),
   };
   options.session.messages.push(userMessage);
@@ -458,7 +489,7 @@ export function startVoiceAgentAssistantTurn(options: VoiceAgentAssistantTurnOpt
       const loopResult = await runAgentLoop(
         options.provider,
         options.tools,
-        agentPrompt,
+        options.userTranscript,
         options.sandboxDir,
         options.maxSteps,
         (step) => {
@@ -482,7 +513,8 @@ export function startVoiceAgentAssistantTurn(options: VoiceAgentAssistantTurnOpt
             data: { toolCall, mode: "agent" },
           });
           options.onToolResult?.(toolCall);
-        }
+        },
+        priorMessages
       );
 
       assistantText = loopResult.finalAnswer ||
@@ -503,6 +535,26 @@ export function startVoiceAgentAssistantTurn(options: VoiceAgentAssistantTurnOpt
         chunker.push(assistantText);
       }
       chunker.close();
+    }
+
+    // Safety net: an explicit remember request the model answered without
+    // calling memory_note still lands in the inbox as a raw transcript.
+    // A false "c'est noté" must never lose the user's fact.
+    if (
+      detectRememberIntent(options.userTranscript) &&
+      !toolCallsMade.some((call) => call.name === "memory_note")
+    ) {
+      try {
+        appendInboxNote(options.userTranscript, "voice remember-intent fallback");
+        appendVoiceLog(options.log, {
+          turnIndex: options.turnIndex,
+          type: "memory_note",
+          text: options.userTranscript,
+          data: { mode: "agent", fallback: true },
+        });
+      } catch {
+        // Memory must never break a voice turn.
+      }
     }
 
     try {
@@ -571,10 +623,17 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
   });
   let provider = createProvider(config);
   const voice = config.voice;
+  ensureMemoryLayout();
   let voiceDesignPrompt = loadVoiceDesignPrompt(voice);
   const promptValidation = validatePrompts({ promptsDir: voice.promptsDir });
-  const session = createSession(config.model);
   const voiceLog = createVoiceTranscriptLog(config.model, voice.language);
+  const session = createSession(config.model);
+  // Same id for the rolling session file and the JSONL log: the conversation
+  // is one session, and consolidation dedupes the two records by id.
+  session.id = voiceLog.id;
+  // Catch-up sweep for transcripts left unconsolidated by a crash or kill.
+  // Fire-and-forget; the live session is excluded until its own /exit.
+  startConsolidationSweep(config, [voiceLog.id]);
   const state = new VoiceConversationState({ debug: voice.debugTranscript });
   const microphone = new FfmpegMicrophoneCapture();
   const sttProvider = createSTTProvider(voice);
@@ -670,6 +729,27 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
       });
       console.log(`You: ${transcript}`);
 
+      // Plain voice mode has no tools, so "retiens que…" cannot go through
+      // the memory_note tool; transcript detection covers it instead
+      // (spec §5.2). Agent mode is excluded — the tool path handles it there.
+      if (!agentMode && detectRememberIntent(transcript)) {
+        try {
+          appendInboxNote(transcript, "voice remember-intent detection");
+          appendVoiceTranscriptEvent(voiceLog, {
+            turnIndex,
+            type: "memory_note",
+            text: transcript,
+          });
+          console.log("[memory] saved to the memory inbox");
+        } catch (err) {
+          appendVoiceTranscriptEvent(voiceLog, {
+            turnIndex,
+            type: "error",
+            text: `memory note failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+      }
+
       activeTurn = agentMode
         ? startVoiceAgentAssistantTurn({
             provider,
@@ -760,6 +840,10 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
       data: { ...state.snapshot() },
     });
   }
+
+  // Clean /exit: consolidate the just-ended session (and anything else
+  // pending) before returning. A crash skips this — the sweep catches it.
+  await consolidateOnExit(config);
 
   async function handleCommand(line: string): Promise<void> {
     const trimmed = line.trim();
@@ -859,6 +943,11 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
       case "voice-style":
         console.log(voiceDesignPrompt.trim());
         break;
+      case "memory": {
+        const index = readMemoryIndex().trim();
+        console.log(index || "Memory index is empty.");
+        break;
+      }
       case "debug":
         state.setDebug(args === "on");
         console.log(`Debug: ${args === "on" ? "on" : "off"}`);
@@ -1153,9 +1242,10 @@ function buildVoiceUserMessage(transcript: string, voice: VoiceConfig): string {
   ].join("\n");
 }
 
-function buildVoiceAgentPrompt(transcript: string, voice: VoiceConfig): string {
+function buildVoiceAgentInstructions(voice: VoiceConfig): string {
   const persona = renderPrompt("persona", {}, { promptsDir: voice.promptsDir });
   const agent = renderPrompt("agent", {}, { promptsDir: voice.promptsDir });
+  const memoryBlock = buildMemoryContextBlock({ withToolInstructions: true });
   const languageInstruction = voice.language === "fr"
     ? "Reponds en francais. Utilise les outils seulement quand ils aident vraiment, puis donne une reponse finale claire et concise qui peut etre lue a voix haute."
     : "Respond in English. Use tools only when they are genuinely helpful, then provide a clear concise final answer that can be spoken aloud.";
@@ -1165,11 +1255,11 @@ function buildVoiceAgentPrompt(transcript: string, voice: VoiceConfig): string {
     persona.trim(),
     "",
     agent.trim(),
+    ...(memoryBlock ? ["", memoryBlock] : []),
     "",
     languageInstruction,
     "",
-    "User transcript:",
-    transcript,
+    "The following messages are the live voice conversation with the user.",
   ].join("\n");
 }
 

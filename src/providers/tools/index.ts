@@ -9,6 +9,8 @@ import fileRead from "./fileRead";
 import fileWrite from "./fileWrite";
 import calculator from "./calculator";
 import getCurrentTime from "./getCurrentTime";
+import memoryRead from "./memoryRead";
+import memoryNote from "./memoryNote";
 
 /** Registry of all built-in tools, keyed by tool name. */
 export const TOOL_REGISTRY: Record<string, IToolProvider> = {
@@ -16,6 +18,8 @@ export const TOOL_REGISTRY: Record<string, IToolProvider> = {
   [fileWrite.name]: fileWrite,
   [calculator.name]: calculator,
   [getCurrentTime.name]: getCurrentTime,
+  [memoryRead.name]: memoryRead,
+  [memoryNote.name]: memoryNote,
 };
 
 /**

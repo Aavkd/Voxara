@@ -197,6 +197,7 @@ export interface VoiceTranscriptEvent {
     | "interrupted"
     | "metrics"
     | "vad"
+    | "memory_note"
     | "error"
     | "session_end";
   text?: string;

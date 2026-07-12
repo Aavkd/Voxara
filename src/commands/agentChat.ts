@@ -31,6 +31,15 @@ import {
   Session,
   AppConfig,
 } from "../types";
+import {
+  ensureMemoryLayout,
+  buildMemoryContextBlock,
+  readMemoryIndex,
+} from "../memory/memoryStore";
+import {
+  consolidateOnExit,
+  startConsolidationSweep,
+} from "../memory/consolidation";
 
 export async function agentChatCommand(options: {
   key?: string;
@@ -40,6 +49,12 @@ export async function agentChatCommand(options: {
   sandbox?: string;
 }): Promise<void> {
   let config: AppConfig = loadConfig({ apiKey: options.key, model: options.model });
+
+  ensureMemoryLayout();
+
+  // Catch-up sweep for transcripts left unconsolidated by a crash or kill —
+  // fire-and-forget so the conversation never waits on memory work.
+  startConsolidationSweep(config);
 
   // ── Parse tools ──────────────────────────────────────────────────
   // If --tools is omitted, default to ALL registered tools so the agent can
@@ -271,6 +286,12 @@ export async function agentChatCommand(options: {
         break;
       }
 
+      case "memory": {
+        const index = readMemoryIndex().trim();
+        appendModelMessage(index || "Memory index is empty.");
+        break;
+      }
+
       case "exit": {
         saveAgentSession(session);
         // The component calls exit() itself when it receives /exit
@@ -279,7 +300,7 @@ export async function agentChatCommand(options: {
 
       default: {
         appendModelMessage(
-          `Unknown command: /${cmd}. Available: /tools /docs <path> /info /clear /model <name> /exit`
+          `Unknown command: /${cmd}. Available: /tools /docs <path> /info /memory /clear /model <name> /exit`
         );
         break;
       }
@@ -295,10 +316,17 @@ export async function agentChatCommand(options: {
     state.currentTrace = [];
     renderComponent();
 
-    const promptToSend =
+    const basePrompt =
       loadedDocContents.length > 0
         ? buildContextPrompt(loadedDocContents, userInput)
         : userInput;
+
+    // Each agent turn is standalone, so the memory context (read fresh from
+    // disk) is embedded in the turn prompt rather than the session history.
+    const memoryBlock = buildMemoryContextBlock({ withToolInstructions: true });
+    const promptToSend = memoryBlock
+      ? `${memoryBlock}\n\n---\n\n${basePrompt}`
+      : basePrompt;
 
     try {
       const loopResult = await runAgentLoop(
@@ -381,6 +409,7 @@ export async function agentChatCommand(options: {
   rerenderFn = rerender;
 
   await waitUntilExit();
+  await consolidateOnExit(config);
   process.exit(0);
 }
 

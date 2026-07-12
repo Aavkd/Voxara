@@ -10,6 +10,7 @@ The project currently provides:
 - Agent tool-use tests with sandboxed file access
 - RAG tests with faithfulness and hallucination checks
 - Editable runtime prompts under `prompts/`
+- Layered long-term memory in editable Markdown under `~/.llmtest/memory/`
 - Local French/English voice chat with VAD and barge-in
 - Local STT through faster-whisper or whisper.cpp
 - Local TTS through Piper, Supertonic, or Qwen3-TTS
@@ -105,6 +106,11 @@ Run `npm run dev -- <command>` during development or `node dist/cli.js <command>
 | `agent <file>` | Run tool-use and file-assertion tests. |
 | `rag <file>` | Run document-grounded RAG tests. |
 | `prompts check` | Validate the editable prompt files and template variables. |
+| `memory list` | Show the long-term memory index and entry counts. |
+| `memory show <id>` | Print one memory entry (fact or episode). |
+| `memory edit <id>` | Open a memory entry in your editor. |
+| `memory consolidate` | Force a memory consolidation run now (`--deep` adds the full hygiene pass). |
+| `memory forget <id>` | Archive a fact/episode and drop its index line. |
 | `shell` | Start the persistent interactive REPL. |
 | `voice-check` | Diagnose microphone, playback, VAD, STT, and TTS. |
 | `voice-chat` | Start the real-time voice conversation loop. |
@@ -193,6 +199,7 @@ During `voice-chat`, the following terminal commands are available:
 | `/voice-style` | Display the current voice-style prompt. |
 | `/debug on`, `/debug off` | Toggle debug output. |
 | `/tools all\|none\|<a,b>` | Change active tools in agent mode. |
+| `/memory` | Print the long-term memory index. |
 
 Voice session events and latency metrics are written as JSONL files under `~/.llmtest/voice-sessions/`.
 
@@ -252,6 +259,24 @@ npm run dev -- prompts check --debug
 
 Set `PROMPTS_DIR` to load prompts from another directory.
 
+## Long-term memory
+
+The assistant keeps a layered, human-editable memory under `~/.llmtest/memory/` (override with `LLMTEST_MEMORY_DIR`):
+
+- `MEMORY.md` — the index, injected into every `chat`, `agent-chat`, and `voice-chat` session
+- `facts/` — durable facts about the user, one Markdown file each
+- `episodes/` — dated summaries of past conversations
+- `inbox/` — raw "remember that…" notes awaiting consolidation
+- `archive/` — retired material, never loaded into prompts
+
+Everything is plain Markdown: inspect it with `memory list` and `memory show <id>`, or edit the files directly. In agent modes the model can read entries with the `memory_read` tool and save notes with `memory_note` when you say "retiens que…" / "remember that…".
+
+Finished conversations are consolidated in the background by a dedicated memory agent: on `/exit` (and via a startup catch-up sweep after crashes), each session becomes a dated episode file, durable facts are extracted or updated, and inbox notes are filed. Set `MEMORY_AGENT_PROVIDER` / `MEMORY_AGENT_MODEL` to run consolidation on a cheaper or local model; force a run with `memory consolidate`; archive a fact with `memory forget <id>`.
+
+Memory also cleans itself: every consolidation ends with a hygiene step that merges duplicate facts, resolves contradictions (newest wins, the loser is archived), compacts episodes older than `MEMORY_EPISODE_RETENTION_DAYS` (default 90) into quarterly digests, and keeps `MEMORY.md` within its 80-line budget. Run `memory consolidate --deep` to force the full pass. Nothing is ever hard-deleted — everything displaced moves to `archive/`.
+
+The full design is specified in [`docs/memory-architecture-spec.md`](docs/memory-architecture-spec.md).
+
 ## Configuration resolution
 
 Configuration is resolved in this order, from highest to lowest priority:
@@ -288,6 +313,7 @@ src/
   display/        Ink/React terminal UI components
   engine/         Agent execution loop
   evaluation/     LLM-as-judge evaluation
+  memory/         Layered long-term memory store (Markdown files)
   prompts/        Prompt loading, interpolation, and validation
   providers/      Gemini, GitHub Models, Ollama, and built-in tools
   rag/            Document loading, context building, and faithfulness judging

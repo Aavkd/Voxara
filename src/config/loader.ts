@@ -163,6 +163,46 @@ export function loadConfig(overrides?: Partial<AppConfig>): AppConfig {
 }
 
 /**
+ * Resolve the memory agent's provider/model (spec §6.3). The memory agent is
+ * latency-insensitive, so MEMORY_AGENT_PROVIDER / MEMORY_AGENT_MODEL may point
+ * it at a cheaper or local model; both default to the main configuration.
+ * Any resolution failure (e.g. missing key for the requested provider) falls
+ * back to the main config — memory must never break on configuration.
+ */
+export function loadMemoryAgentConfig(mainConfig: AppConfig): AppConfig {
+  const provider = process.env.MEMORY_AGENT_PROVIDER?.trim();
+  const model = process.env.MEMORY_AGENT_MODEL?.trim();
+
+  if (!provider && !model) {
+    return mainConfig;
+  }
+
+  try {
+    return loadConfig({
+      provider: (provider as AppConfig["provider"]) || mainConfig.provider,
+      model: model || undefined,
+    });
+  } catch {
+    return mainConfig;
+  }
+}
+
+const DEFAULT_MEMORY_EPISODE_RETENTION_DAYS = 90;
+
+/**
+ * Episodes older than this many days are compacted into quarterly digests by
+ * the memory hygiene pass (spec §8.3). Configured via
+ * MEMORY_EPISODE_RETENTION_DAYS; invalid values fall back to the default.
+ */
+export function loadEpisodeRetentionDays(): number {
+  return positiveInteger(
+    undefined,
+    process.env.MEMORY_EPISODE_RETENTION_DAYS,
+    DEFAULT_MEMORY_EPISODE_RETENTION_DAYS
+  );
+}
+
+/**
  * Load voice-specific configuration without requiring an LLM API key.
  * This lets audio diagnostics run even when provider credentials are not ready.
  */

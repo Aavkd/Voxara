@@ -17,7 +17,8 @@ interface ChatInterfaceProps {
     text: string,
     onChunk: (chunk: string) => void
   ) => Promise<{ inputTokens: number; outputTokens: number; fullText: string }>;
-  onSlashCommand: (command: string, args: string) => boolean;
+  /** Returns true when handled; a string is displayed as the command's output. */
+  onSlashCommand: (command: string, args: string) => boolean | string;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -79,8 +80,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       // Unknown slash command — pass through to handler
       const handled = onSlashCommand(cmd, args);
-      if (!handled) {
-        setInfoMessage(`Unknown command: /${cmd}. Available: /clear, /model <name>, /info, /exit`);
+      if (typeof handled === "string") {
+        setInfoMessage(handled);
+      } else if (!handled) {
+        setInfoMessage(`Unknown command: /${cmd}. Available: /clear, /model <name>, /info, /memory, /exit`);
       }
       return;
     }
@@ -190,7 +193,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       {/* Help footer */}
       <Box marginTop={1}>
-        <Text dimColor>{'/clear /model <name> /info /exit | Ctrl+C to quit'}</Text>
+        <Text dimColor>{'/clear /model <name> /info /memory /exit | Ctrl+C to quit'}</Text>
       </Box>
     </Box>
   );

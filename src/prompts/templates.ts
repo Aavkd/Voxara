@@ -6,7 +6,9 @@ export type PromptName =
   | "judge-strict"
   | "faithfulness"
   | "stt-cleanup"
-  | "voice-style";
+  | "voice-style"
+  | "memory-agent"
+  | "memory-hygiene";
 
 export interface PromptTemplateDefinition {
   name: PromptName;
@@ -114,6 +116,61 @@ export const PROMPT_TEMPLATES: PromptTemplateDefinition[] = [
     fileName: "voice-style.md",
     requiredVariables: [],
     fallback: "Speak in a warm, natural, conversational voice. Keep the delivery clear, calm, and expressive without sounding theatrical.",
+  },
+  {
+    name: "memory-agent",
+    fileName: "memory-agent.md",
+    requiredVariables: [
+      "date",
+      "channel",
+      "transcript",
+      "memoryIndex",
+      "factSummaries",
+      "inboxNotes",
+    ],
+    fallback: [
+      "You are a memory consolidation agent. You MUST reply with ONLY a raw JSON object - no markdown, no code fences, no text outside the JSON.",
+      "",
+      "Session date: {{date}} | Channel: {{channel}}",
+      "",
+      "TRANSCRIPT:",
+      "{{transcript}}",
+      "",
+      "MEMORY INDEX:",
+      "{{memoryIndex}}",
+      "",
+      "EXISTING FACTS:",
+      "{{factSummaries}}",
+      "",
+      "INBOX NOTES:",
+      "{{inboxNotes}}",
+      "",
+      "Write an episode summary of the transcript, extract durable facts (prefer updating an existing fact id over creating a near-duplicate), file the inbox notes, and archive facts the user asked to forget. Write everything in English. New fact ids are kebab-case slugs.",
+      "",
+      "Required output format (nothing else):",
+      '{"episode": {"summary": "...", "decisions": ["..."], "openThreads": ["..."], "hook": "..."} or null, "factUpserts": [{"id": "kebab-case-id", "body": "...", "hook": "..."}], "archiveIds": ["..."]}',
+    ].join("\n"),
+  },
+  {
+    name: "memory-hygiene",
+    fileName: "memory-hygiene.md",
+    requiredVariables: ["factBodies", "memoryIndex", "overBudgetNote"],
+    fallback: [
+      "You are a memory hygiene agent. You MUST reply with ONLY a raw JSON object - no markdown, no code fences, no text outside the JSON.",
+      "",
+      "MEMORY INDEX:",
+      "{{memoryIndex}}",
+      "",
+      "FACT FILES (full bodies, with last-updated dates):",
+      "{{factBodies}}",
+      "",
+      "{{overBudgetNote}}",
+      "",
+      "Merge duplicate/overlapping facts (keepId absorbs absorbIds; the merged body keeps every piece of information) and flag facts that contradict each other (do not pick the winner - the system keeps the most recently updated one). Every merge must absorb at least one fact. Only use ids that appear in FACT FILES. When in doubt, return empty arrays.",
+      "",
+      "Required output format (nothing else):",
+      '{"merges": [{"keepId": "existing-id", "absorbIds": ["existing-id"], "body": "...", "hook": "..."}], "contradictions": [{"ids": ["existing-id", "existing-id"]}]}',
+    ].join("\n"),
   },
 ];
 

@@ -1,3 +1,6 @@
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { CancellablePlaybackQueue } from "../src/audio/player";
 import { AudioBuffer, AudioOutput, PlaybackResult } from "../src/audio/types";
 import { PCM16_MONO_16KHZ, createToneWav } from "../src/audio/wav";
@@ -241,6 +244,95 @@ describe("voice assistant turn", () => {
     expect(session.messages.at(-1)?.content).toBe("The result is 5.");
     expect(steps.map((step) => step.type)).toEqual(["tool_call", "final_answer"]);
   });
+
+  it("passes instructions and prior session history to agent turns", async () => {
+    const provider = new MockAgentLLMProvider([
+      { type: "final_answer", text: "Salut !", inputTokens: 1, outputTokens: 1 },
+    ]);
+    const tts = new MockTTSProvider();
+    const playback = new CancellablePlaybackQueue(new MockAudioOutput(5));
+    const session = makeSession();
+    session.messages.push(
+      { role: "user", content: "Premier message", timestamp: 1 },
+      { role: "model", content: "Première réponse", timestamp: 2 }
+    );
+
+    const turn = startVoiceAgentAssistantTurn({
+      provider,
+      tools: [],
+      sandboxDir: process.cwd(),
+      maxSteps: 5,
+      ttsProvider: tts,
+      playback,
+      session,
+      userTranscript: "Deuxième message",
+      voice: makeVoiceConfig("fr"),
+      voiceDesignPrompt: "Clear.",
+      turnIndex: 2,
+      saveSession: jest.fn(),
+    });
+    await turn.done;
+
+    const seen = provider.seenMessages[0];
+    // Instruction preamble, then real history, then the current transcript.
+    expect(seen[0].role).toBe("user");
+    expect(seen[0].content).toContain("Voice agent conversation instructions");
+    expect(seen.map((m) => m.content)).toEqual(
+      expect.arrayContaining(["Premier message", "Première réponse"])
+    );
+    expect(seen.at(-1)?.content).toBe("Deuxième message");
+    // The session stores the raw transcript, not the wrapped prompt.
+    expect(session.messages.some((m) => m.content === "Deuxième message")).toBe(true);
+    expect(session.messages.some((m) => m.content.includes("instructions"))).toBe(false);
+  });
+
+  it("writes a fallback inbox note when a remember request skips memory_note", async () => {
+    const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "llmtest-voice-mem-"));
+    const originalMemoryDir = process.env.LLMTEST_MEMORY_DIR;
+    process.env.LLMTEST_MEMORY_DIR = memoryDir;
+
+    try {
+      const provider = new MockAgentLLMProvider([
+        { type: "final_answer", text: "C'est noté !", inputTokens: 1, outputTokens: 1 },
+      ]);
+      const tts = new MockTTSProvider();
+      const playback = new CancellablePlaybackQueue(new MockAudioOutput(5));
+
+      const turn = startVoiceAgentAssistantTurn({
+        provider,
+        tools: [],
+        sandboxDir: process.cwd(),
+        maxSteps: 5,
+        ttsProvider: tts,
+        playback,
+        session: makeSession(),
+        userTranscript: "Retiens que mon prénom c'est Alexy.",
+        voice: makeVoiceConfig("fr"),
+        voiceDesignPrompt: "Clear.",
+        turnIndex: 1,
+        saveSession: jest.fn(),
+      });
+      await turn.done;
+
+      const notes = fs
+        .readdirSync(path.join(memoryDir, "inbox"))
+        .filter((name) => name.endsWith(".md"));
+      expect(notes).toHaveLength(1);
+      const content = fs.readFileSync(
+        path.join(memoryDir, "inbox", notes[0]),
+        "utf-8"
+      );
+      expect(content).toContain("Retiens que mon prénom c'est Alexy.");
+      expect(content).toContain("source: voice remember-intent fallback");
+    } finally {
+      if (originalMemoryDir === undefined) {
+        delete process.env.LLMTEST_MEMORY_DIR;
+      } else {
+        process.env.LLMTEST_MEMORY_DIR = originalMemoryDir;
+      }
+      fs.rmSync(memoryDir, { recursive: true, force: true });
+    }
+  });
 });
 
 class MockLLMProvider implements ILLMProvider {
@@ -442,6 +534,7 @@ class MockTTSProvider implements ITTSProvider {
 
 class MockAgentLLMProvider implements ILLMProvider {
   readonly name = "mock-agent-llm";
+  readonly seenMessages: Message[][] = [];
   private index = 0;
 
   constructor(private readonly steps: AgentStepResult[]) {}
@@ -462,7 +555,8 @@ class MockAgentLLMProvider implements ILLMProvider {
     throw new Error("not implemented");
   }
 
-  async promptWithTools(_messages: Message[], _tools: IToolProvider[]): Promise<AgentStepResult> {
+  async promptWithTools(messages: Message[], _tools: IToolProvider[]): Promise<AgentStepResult> {
+    this.seenMessages.push([...messages]);
     const next = this.steps[this.index];
     this.index += 1;
     if (!next) {

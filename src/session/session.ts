@@ -16,6 +16,11 @@ const SESSION_FILE = path.join(SESSION_DIR, "session.json");
 const AGENT_SESSION_FILE = path.join(SESSION_DIR, "agent-session.json");
 const VOICE_SESSION_DIR = path.join(SESSION_DIR, "voice-sessions");
 
+/** Directory holding one JSONL transcript per voice session (consolidation sweep input). */
+export function getVoiceSessionDir(): string {
+  return VOICE_SESSION_DIR;
+}
+
 /**
  * Save a session to disk.
  * Creates ~/.llmtest/ directory if it doesn't exist.

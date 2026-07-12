@@ -20,6 +20,7 @@ import { compareCommand } from "./commands/compare";
 import { convoCommand } from "./commands/convo";
 import { agentChatCommand } from "./commands/agentChat";
 import { promptsCommand } from "./commands/prompts";
+import { memoryCommand } from "./commands/memory";
 import { voiceCheckCommand } from "./commands/voiceCheck";
 import { voiceChatCommand } from "./commands/voiceChat";
 import { ttsCompareCommand } from "./commands/ttsCompare";
@@ -71,6 +72,7 @@ program
 
 // ── chat ────────────────────────────────────────────────────────────
 program.addCommand(promptsCommand());
+program.addCommand(memoryCommand());
 
 program
   .command("voice-check")

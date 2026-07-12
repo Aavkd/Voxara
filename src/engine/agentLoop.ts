@@ -26,6 +26,8 @@ export interface AgentLoopResult {
  * @param maxSteps      - Maximum number of loop iterations before giving up.
  * @param onStep        - Callback invoked after every step (for live display).
  * @param onToolResult  - Optional callback invoked after each tool execution.
+ * @param priorMessages - Optional conversation history (and/or instruction
+ *                        preamble) placed before the initial prompt.
  * @returns             - The final answer, all tool calls made, and step count.
  */
 export async function runAgentLoop(
@@ -35,7 +37,8 @@ export async function runAgentLoop(
   sandboxDir: string,
   maxSteps: number,
   onStep: (step: AgentStepResult) => void,
-  onToolResult?: (toolCall: ToolCallRecord) => void
+  onToolResult?: (toolCall: ToolCallRecord) => void,
+  priorMessages?: Message[]
 ): Promise<AgentLoopResult> {
   if (!provider.promptWithTools) {
     throw new Error(
@@ -44,6 +47,7 @@ export async function runAgentLoop(
   }
 
   const messages: Message[] = [
+    ...(priorMessages ?? []),
     { role: "user", content: initialPrompt, timestamp: Date.now() },
   ];
 

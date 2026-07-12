@@ -43,7 +43,7 @@ describe("promptLoader", () => {
   it("validates the default prompt directory", () => {
     const result = validatePrompts();
     expect(result.ok).toBe(true);
-    expect(result.checked).toHaveLength(8);
+    expect(result.checked).toHaveLength(10);
     expect(result.errors).toEqual([]);
   });
 

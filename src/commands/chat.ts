@@ -14,6 +14,15 @@ import {
 } from "../session/session";
 import { ChatInterface, SessionPrompt } from "../display";
 import { Message, Session, AppConfig } from "../types";
+import {
+  ensureMemoryLayout,
+  buildMemoryPreambleMessages,
+  readMemoryIndex,
+} from "../memory/memoryStore";
+import {
+  consolidateOnExit,
+  startConsolidationSweep,
+} from "../memory/consolidation";
 
 export async function chatCommand(options: {
   key?: string;
@@ -23,6 +32,10 @@ export async function chatCommand(options: {
     apiKey: options.key,
     model: options.model,
   });
+
+  // Catch-up sweep for transcripts left unconsolidated by a crash or kill —
+  // fire-and-forget so the conversation never waits on memory work.
+  startConsolidationSweep(config);
 
   const existingSession = loadSession();
 
@@ -71,6 +84,8 @@ async function startChat(config: AppConfig, session: Session): Promise<void> {
   let provider = createProvider(config);
   let currentConfig = { ...config };
 
+  ensureMemoryLayout();
+
   const handleSendMessage = async (
     text: string,
     onChunk: (chunk: string) => void
@@ -87,8 +102,13 @@ async function startChat(config: AppConfig, session: Session): Promise<void> {
     };
     session.messages.push(userMessage);
 
-    // Stream the response
-    const result = await provider.streamChat(session.messages, onChunk);
+    // Stream the response. The memory preamble is transient: it is read fresh
+    // each turn and prepended for the provider only, never saved in the session.
+    const messagesWithMemory = [
+      ...buildMemoryPreambleMessages(),
+      ...session.messages,
+    ];
+    const result = await provider.streamChat(messagesWithMemory, onChunk);
 
     // Add model message to session
     session.messages.push(result.message);
@@ -101,8 +121,13 @@ async function startChat(config: AppConfig, session: Session): Promise<void> {
     };
   };
 
-  const handleSlashCommand = (command: string, args: string): boolean => {
+  const handleSlashCommand = (command: string, args: string): boolean | string => {
     switch (command) {
+      case "memory": {
+        const index = readMemoryIndex().trim();
+        return index || "Memory index is empty.";
+      }
+
       case "clear":
         session.messages = [];
         clearSession();
@@ -137,5 +162,6 @@ async function startChat(config: AppConfig, session: Session): Promise<void> {
   );
 
   await waitUntilExit();
+  await consolidateOnExit(config);
   process.exit(0);
 }
