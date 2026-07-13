@@ -283,17 +283,41 @@ export class GoogleProvider implements ILLMProvider {
     const candidate = response.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
 
-    // Check if the model issued a function call
-    const functionCallPart = parts.find(
-      (p) => (p as unknown as Record<string, unknown>).functionCall !== undefined
-    ) as { functionCall: { name: string; args: Record<string, unknown> } } | undefined;
+    // Collect EVERY function call in the response: Gemini may issue several
+    // in parallel (fill+click), and dropping the extras pushed the model
+    // into emitting tool calls as plain text instead. The part-level
+    // thoughtSignature must travel with each call — Gemini 3 rejects
+    // replayed history whose functionCall parts omit it.
+    const functionCalls = parts
+      .map((p) => {
+        const raw = p as unknown as Record<string, unknown>;
+        const call = raw.functionCall as
+          | { name: string; args: Record<string, unknown> }
+          | undefined;
+        if (!call) {
+          return undefined;
+        }
+        return {
+          name: call.name,
+          args: call.args ?? {},
+          thoughtSignature:
+            typeof raw.thoughtSignature === "string" ? raw.thoughtSignature : undefined,
+        };
+      })
+      .filter((call): call is NonNullable<typeof call> => call !== undefined);
 
-    if (functionCallPart?.functionCall) {
-      const { name, args } = functionCallPart.functionCall;
+    if (functionCalls.length > 0) {
+      const [first, ...rest] = functionCalls;
       return {
         type: "tool_call",
-        toolName: name,
-        toolParams: args ?? {},
+        toolName: first.name,
+        toolParams: first.args,
+        thoughtSignature: first.thoughtSignature,
+        extraToolCalls: rest.map((call) => ({
+          toolName: call.name,
+          toolParams: call.args,
+          thoughtSignature: call.thoughtSignature,
+        })),
         inputTokens,
         outputTokens,
       };
@@ -370,28 +394,65 @@ export class GoogleProvider implements ILLMProvider {
 
 /**
  * Convert our Message type to the Gemini SDK's Content format.
+ *
+ * Exported for deterministic payload tests. Tool-result messages must carry
+ * the SDK's "function" role: validateChatHistory rejects functionResponse
+ * parts under any other role (and the agent loop keeps tool_result parts in
+ * their own message, never mixed with text or images).
  */
-function toGeminiMessage(msg: Message): { role: string; parts: GeminiPart[] } {
+export function toGeminiMessage(msg: Message): { role: string; parts: GeminiPart[] } {
+  const parts = toGeminiParts(msg.content);
+  const hasFunctionResponse = parts.some((part) => "functionResponse" in part);
   return {
-    role: msg.role === "model" ? "model" : "user",
-    parts: toGeminiParts(msg.content),
+    role: hasFunctionResponse ? "function" : msg.role === "model" ? "model" : "user",
+    parts,
   };
 }
 
 type GeminiPart =
   | { text: string }
-  | { inlineData: { mimeType: string; data: string } };
+  | { inlineData: { mimeType: string; data: string } }
+  | {
+      functionCall: { name: string; args: Record<string, unknown> };
+      thoughtSignature: string;
+    }
+  | { functionResponse: { name: string; response: Record<string, unknown> } };
 
-/** Exported for deterministic provider-payload tests without network calls. */
+/**
+ * Documented Gemini 3 placeholder for functionCall parts the model did not
+ * produce (e.g. a textual tool call the guardrail executed): it skips the
+ * signature validation instead of 400-ing the whole request.
+ */
+const THOUGHT_SIGNATURE_PLACEHOLDER = "skip_thought_signature_validator";
+
+/**
+ * Exported for deterministic provider-payload tests without network calls.
+ *
+ * Tool exchanges map to Gemini's NATIVE function-calling parts. Replaying
+ * them as `[tool_call: ...]` text taught the model to imitate that syntax
+ * instead of calling the API (2026-07-13 live finding) — the model must only
+ * ever see its past tool use in the same structured format it is asked to
+ * produce.
+ */
 export function toGeminiParts(content: string | ContentPart[]): GeminiPart[] {
   if (typeof content === "string") {
     return [{ text: content }];
   }
-  return content.map((part) =>
-    part.type === "text"
-      ? { text: part.text }
-      : { inlineData: { mimeType: part.mimeType, data: part.base64 } }
-  );
+  return content.map((part): GeminiPart => {
+    switch (part.type) {
+      case "text":
+        return { text: part.text };
+      case "image":
+        return { inlineData: { mimeType: part.mimeType, data: part.base64 } };
+      case "tool_call":
+        return {
+          functionCall: { name: part.name, args: part.args },
+          thoughtSignature: part.thoughtSignature ?? THOUGHT_SIGNATURE_PLACEHOLDER,
+        };
+      case "tool_result":
+        return { functionResponse: { name: part.name, response: { result: part.result } } };
+    }
+  });
 }
 
 /**

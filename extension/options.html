@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Voxara Browser Bridge — Options</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    input { width: 100%; padding: 0.4rem; margin-top: 0.25rem; box-sizing: border-box; }
+    button { margin-top: 1.25rem; padding: 0.5rem 1.25rem; }
+    #status { margin-top: 1rem; padding: 0.6rem; border-radius: 4px; background: #f0f0f0; font-size: 0.9rem; }
+    .hint { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>Voxara Browser Bridge</h1>
+  <p>
+    Pair this extension with your local Voxara assistant. Run
+    <code>llmtest control doctor</code> in a terminal to get the pairing token.
+    The extension only ever talks to <code>127.0.0.1</code>.
+  </p>
+
+  <label for="token">Pairing token</label>
+  <input id="token" type="text" autocomplete="off" spellcheck="false" placeholder="paste the token from llmtest control doctor" />
+
+  <label for="port">Bridge port</label>
+  <input id="port" type="number" min="1" max="65535" placeholder="7863" />
+  <div class="hint">Must match CONTROL_BRIDGE_PORT (default 7863).</div>
+
+  <button id="save">Save</button>
+
+  <div id="status">Status: unknown</div>
+
+  <script src="options.js"></script>
+</body>
+</html>

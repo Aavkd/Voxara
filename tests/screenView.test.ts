@@ -65,9 +65,47 @@ describe("screen_view", () => {
     ]);
   });
 
-  test("rejects the future browser tab target with relayable guidance", async () => {
-    const tool = createScreenViewTool({ journal: jest.fn() });
+  test("serves target=browser_tab through the C3b browser bridge", async () => {
+    const journal = jest.fn();
+    const tool = createScreenViewTool({
+      journal,
+      browserExecutor: () => ({
+        readPage: async () => ({ url: "", title: "", elements: [] }),
+        listTabs: async () => [],
+        act: async () => undefined,
+        screenshot: async () => image,
+        lookupRef: () => undefined,
+        isAvailable: () => true,
+      }),
+    });
+    const activeProvider = { name: "vision", supportsImages: true } as ILLMProvider;
+
+    await expect(tool.execute(
+      { target: "browser_tab" },
+      ".",
+      { sessionId: "session-b", activeProvider }
+    )).resolves.toMatchObject({ ...image });
+    expect(journal).toHaveBeenCalledWith(
+      { sessionId: "session-b", target: "browser_tab", outcome: "success" },
+      image
+    );
+  });
+
+  test("relays pairing guidance when no extension is connected for browser_tab", async () => {
+    const tool = createScreenViewTool({
+      journal: jest.fn(),
+      browserExecutor: () => ({
+        readPage: async () => ({ url: "", title: "", elements: [] }),
+        listTabs: async () => [],
+        act: async () => undefined,
+        screenshot: async () => {
+          throw new Error("l'extension Chrome n'est pas connectée — `llmtest control doctor` explique l'appairage");
+        },
+        lookupRef: () => undefined,
+        isAvailable: () => false,
+      }),
+    });
     await expect(tool.execute({ target: "browser_tab" }, "."))
-      .rejects.toThrow("C3b Chrome bridge");
+      .rejects.toThrow("llmtest control doctor");
   });
 });

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Voxara Browser Bridge",
+  "version": "0.1.0",
+  "description": "Connects your real Chrome tabs to the local Voxara assistant. Talks only to 127.0.0.1 — nothing leaves the machine.",
+  "permissions": ["tabs", "activeTab", "scripting", "storage", "alarms"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}

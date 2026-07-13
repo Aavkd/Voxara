@@ -6,8 +6,13 @@ import { ControlJournalEntry, ScreenImageResult } from "./types";
 
 const DEFAULT_CAPTURE_KEEP_COUNT = 5;
 
-export function journalScreenView(
-  entry: Omit<ControlJournalEntry, "timestamp" | "lane" | "intent" | "policyDecision">,
+/**
+ * Append one control-journal record (§8.3): append-only JSONL per session
+ * under the state root's control/ directory, pruned by retention days.
+ * Every evaluated intent is journaled — allowed, blocked, or failed.
+ */
+export function journalControl(
+  entry: Omit<ControlJournalEntry, "timestamp">,
   image?: ScreenImageResult,
   baseDir?: string
 ): void {
@@ -30,9 +35,6 @@ export function journalScreenView(
 
   const record: ControlJournalEntry = {
     timestamp: new Date().toISOString(),
-    lane: "fast",
-    intent: "screen_view",
-    policyDecision: "allowed",
     ...entry,
     artifact,
   };
@@ -40,6 +42,24 @@ export function journalScreenView(
     path.join(controlDir, `${safeSegment(entry.sessionId)}.jsonl`),
     `${JSON.stringify(record)}\n`,
     "utf8"
+  );
+}
+
+/** C3a-shaped convenience wrapper kept for the screen_view tool. */
+export function journalScreenView(
+  entry: Omit<ControlJournalEntry, "timestamp" | "lane" | "intent" | "policyDecision">,
+  image?: ScreenImageResult,
+  baseDir?: string
+): void {
+  journalControl(
+    {
+      lane: "fast",
+      intent: "screen_view",
+      policyDecision: "allowed",
+      ...entry,
+    },
+    image,
+    baseDir
   );
 }
 

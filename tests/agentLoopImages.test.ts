@@ -46,8 +46,16 @@ test("agent loop appends image tool results as multimodal content", async () => 
   const result = await runAgentLoop(provider, [tool], "look", ".", 3, () => undefined);
 
   expect(result.finalAnswer).toBe("seen");
+  // The exchange is structured: tool_call part, functionResponse-compatible
+  // tool_result part, then the image in its own user message.
+  expect(observed.at(-3)?.content).toEqual([
+    { type: "tool_call", name: "picture", args: {} },
+  ]);
+  expect(observed.at(-2)?.content).toEqual([
+    { type: "tool_result", name: "picture", result: "look here" },
+  ]);
   expect(observed.at(-1)?.content).toEqual([
-    { type: "text", text: "[tool_result: picture] look here" },
+    { type: "text", text: "Capture returned by picture: look here" },
     { type: "image", mimeType: "image/png", base64: "aW1hZ2U=" },
   ]);
 });

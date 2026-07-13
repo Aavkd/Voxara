@@ -68,73 +68,108 @@ export async function runAgentLoop(
     onStep(stepResult);
     stepIndex++;
 
+    // Determine the tool calls this step carries. A "final answer" that is
+    // really a tool call written as text (a small-model failure mode: the
+    // syntax leaks into speech) is intercepted and executed instead of
+    // being returned — the guardrail behind the 2026-07-13 live finding.
+    let calls: Array<{
+      toolName: string;
+      toolParams: Record<string, unknown>;
+      thoughtSignature?: string;
+    }>;
     if (stepResult.type === "final_answer") {
-      return {
-        finalAnswer: stepResult.text ?? "",
-        toolCallsMade,
-        steps: stepIndex,
-      };
-    }
-
-    // type === "tool_call"
-    const toolName = stepResult.toolName!;
-    const toolParams = stepResult.toolParams ?? {};
-    const tool = toolMap[toolName];
-
-    let toolResult: unknown;
-    if (!tool) {
-      toolResult = `error: unknown tool "${toolName}"`;
-    } else {
-      try {
-        toolResult = await tool.execute(toolParams, sandboxDir, {
-          ...toolContext,
-          activeProvider: provider,
-        });
-      } catch (err: unknown) {
-        toolResult = `error: ${err instanceof Error ? err.message : String(err)}`;
+      const textual = extractTextualToolCall(stepResult.text ?? "", toolMap);
+      if (!textual) {
+        return {
+          finalAnswer: stripToolCallArtifacts(stepResult.text ?? ""),
+          toolCallsMade,
+          steps: stepIndex,
+        };
       }
+      calls = [textual];
+    } else {
+      calls = [
+        {
+          toolName: stepResult.toolName!,
+          toolParams: stepResult.toolParams ?? {},
+          thoughtSignature: stepResult.thoughtSignature,
+        },
+        ...(stepResult.extraToolCalls ?? []),
+      ];
     }
 
-    // Record the tool call
-    const toolCallRecord: ToolCallRecord = {
-      name: toolName,
-      params: toolParams,
-      result: toolResult,
-      stepIndex: stepIndex - 1,
-    };
-    toolCallsMade.push(toolCallRecord);
-    onToolResult?.(toolCallRecord);
+    for (const { toolName, toolParams, thoughtSignature } of calls) {
+      const tool = toolMap[toolName];
 
-    // Append the tool result to message history so the model can continue
-    const imageResult = asImageToolResult(toolResult);
-    const toolResultContent = typeof toolResult === "string"
-      ? toolResult
-      : imageResult
-        ? ""
-        : JSON.stringify(toolResult);
+      let toolResult: unknown;
+      if (!tool) {
+        toolResult = `error: unknown tool "${toolName}"`;
+      } else {
+        try {
+          toolResult = await tool.execute(toolParams, sandboxDir, {
+            ...toolContext,
+            activeProvider: provider,
+          });
+        } catch (err: unknown) {
+          toolResult = `error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
 
-    messages.push({
-      role: "model",
-      content: `[tool_call: ${toolName}(${JSON.stringify(toolParams)})]`,
-      timestamp: Date.now(),
-    });
-    messages.push({
-      role: "user",
-      content: imageResult
-        ? [
+      // Record the tool call
+      const toolCallRecord: ToolCallRecord = {
+        name: toolName,
+        params: toolParams,
+        result: toolResult,
+        stepIndex: stepIndex - 1,
+      };
+      toolCallsMade.push(toolCallRecord);
+      onToolResult?.(toolCallRecord);
+
+      // Append the exchange as STRUCTURED parts, never as imitable text:
+      // providers with native function calling (Gemini) replay them as
+      // functionCall/functionResponse, text-only providers get the
+      // descriptive messageText() rendering.
+      const imageResult = asImageToolResult(toolResult);
+      messages.push({
+        role: "model",
+        content: [{ type: "tool_call", name: toolName, args: toolParams, thoughtSignature }],
+        timestamp: Date.now(),
+      });
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            name: toolName,
+            result: imageResult
+              ? imageResult.note ?? "image captured — attached in the next message"
+              : typeof toolResult === "string"
+                ? toolResult
+                : JSON.stringify(toolResult),
+          },
+        ],
+        timestamp: Date.now(),
+      });
+      if (imageResult) {
+        // The image travels in its own user message: Gemini accepts inline
+        // data beside text parts, but not inside a functionResponse.
+        messages.push({
+          role: "user",
+          content: [
             {
               type: "text",
-              text: `[tool_result: ${toolName}]${imageResult.note ? ` ${imageResult.note}` : ""}`,
+              text: `Capture returned by ${toolName}:${imageResult.note ? ` ${imageResult.note}` : ""}`,
             },
             {
               type: "image",
               mimeType: imageResult.mimeType,
               base64: imageResult.base64,
             },
-          ]
-        : `[tool_result: ${toolName}] ${toolResultContent}`,
-      timestamp: Date.now(),
-    });
+          ],
+          timestamp: Date.now(),
+        });
+      }
+    }
   }
 
   // maxSteps reached without a final answer
@@ -144,6 +179,56 @@ export async function runAgentLoop(
     steps: stepIndex,
     error: `max steps exceeded (limit: ${maxSteps})`,
   };
+}
+
+/**
+ * Matches the legacy textual serialization of a tool call — the exact syntax
+ * older histories taught the model to imitate. Kept permissive on
+ * whitespace; the JSON body must parse to count as executable.
+ */
+const TEXTUAL_TOOL_CALL_PATTERN = /\[tool_call:\s*([a-zA-Z0-9_-]+)\s*\((\{[\s\S]*?\})\)\s*\]/;
+
+/**
+ * Extract the first executable tool call a model wrote as TEXT instead of a
+ * native function call. Returns null when there is none — or when the match
+ * cannot be executed (unknown tool, unparseable JSON), in which case the
+ * text is a final answer to sanitize, not to run.
+ */
+function extractTextualToolCall(
+  text: string,
+  toolMap: Record<string, IToolProvider>
+): { toolName: string; toolParams: Record<string, unknown> } | null {
+  const match = TEXTUAL_TOOL_CALL_PATTERN.exec(text);
+  if (!match) {
+    return null;
+  }
+  const [, toolName, rawArgs] = match;
+  if (!toolMap[toolName]) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawArgs);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return { toolName, toolParams: parsed as Record<string, unknown> };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Strip leaked tool-call/result syntax from a final answer so it is never
+ * spoken by TTS or persisted into the session history (where the model
+ * would imitate it in every later turn). Exported for the voice pipeline.
+ */
+export function stripToolCallArtifacts(text: string): string {
+  return text
+    .replace(/\[tool_call:\s*[a-zA-Z0-9_-]+\s*\([\s\S]*?\)\s*\]/g, "")
+    .replace(/\[tool_result:\s*[a-zA-Z0-9_-]+\][^\n]*/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 interface ImageToolResult {

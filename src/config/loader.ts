@@ -206,6 +206,24 @@ export function loadControlScreenshotMaxEdge(): number {
   );
 }
 
+// ── Computer control (phase C3b, docs/phase-c3-computer-control.md §10) ──
+
+/** Trust level for control intents (§8.2). Default: session_grant. */
+export function loadControlTrustLevel(): "confirm_each" | "session_grant" | "auto" {
+  const raw = (process.env.CONTROL_TRUST_LEVEL || "").trim().toLowerCase();
+  return raw === "confirm_each" || raw === "auto" ? raw : "session_grant";
+}
+
+/** Localhost port the Chrome extension bridge listens on (7861/7862 are TTS/STT). */
+export function loadControlBridgePort(): number {
+  return positiveInteger(undefined, process.env.CONTROL_BRIDGE_PORT, 7863);
+}
+
+/** Character budget for browser page snapshots (§7.2). */
+export function loadControlMaxSnapshotChars(): number {
+  return positiveInteger(undefined, process.env.CONTROL_MAX_SNAPSHOT_CHARS, 8000);
+}
+
 /**
  * Resolve the C2d-3 background briefing provider/model. Explicit briefing
  * values override the memory-agent configuration; invalid overrides degrade

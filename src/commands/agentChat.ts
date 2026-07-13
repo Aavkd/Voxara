@@ -43,6 +43,7 @@ import {
 import { drainPendingDeliveries } from "../engine/deliveryQueue";
 import { loadDelegationConfig } from "../config/loader";
 import { getDelegationService } from "../delegation/service";
+import { ensureControlBridgeStarted } from "../control/browserBridge";
 
 export async function agentChatCommand(options: {
   key?: string;
@@ -93,6 +94,10 @@ export async function agentChatCommand(options: {
     process.exit(1);
     return;
   }
+
+  // C3b: the Chrome extension connects OUT to this process, so the bridge
+  // must be listening for the whole session when browser tools are active.
+  ensureControlBridgeStarted(toolNames);
 
   // ── Load initial RAG context ─────────────────────────────────────
   const loadedDocPaths: string[] = [];

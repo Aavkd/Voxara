@@ -2,7 +2,7 @@ import * as readline from "readline";
 import * as fs from "fs";
 import * as path from "path";
 import { loadConfig, loadWorkspaceDir } from "../config/loader";
-import { runAgentLoop } from "../engine/agentLoop";
+import { runAgentLoop, stripToolCallArtifacts } from "../engine/agentLoop";
 import { createProvider } from "../providers/factory";
 import { ILLMProvider } from "../providers/ILLMProvider";
 import { getAllToolNames, getAllTools, getTools } from "../providers/tools/index";
@@ -26,6 +26,7 @@ import {
   consolidateOnExit,
   startConsolidationSweep,
 } from "../memory/consolidation";
+import { ensureControlBridgeStarted } from "../control/browserBridge";
 import {
   DeliveryRecord,
   markDeliveriesDelivered,
@@ -527,10 +528,16 @@ export function startVoiceAgentAssistantTurn(options: VoiceAgentAssistantTurnOpt
         }
       );
 
-      assistantText = loopResult.finalAnswer ||
-        (loopResult.error
-          ? userFriendlyAgentError(loopResult.error, options.voice)
-          : userFriendlyAgentError("The agent finished without a final answer.", options.voice));
+      // Never let tool-call syntax reach the TTS or the saved session: a
+      // leaked occurrence would be spoken aloud AND replayed as context in
+      // every later turn, teaching the model to keep doing it.
+      const cleanedAnswer = stripToolCallArtifacts(loopResult.finalAnswer);
+      assistantText = cleanedAnswer ||
+        (loopResult.finalAnswer.trim()
+          ? (options.voice.language === "fr" ? "C'est fait." : "Done.")
+          : loopResult.error
+            ? userFriendlyAgentError(loopResult.error, options.voice)
+            : userFriendlyAgentError("The agent finished without a final answer.", options.voice));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       assistantText = userFriendlyAgentError(message, options.voice);
@@ -655,6 +662,11 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
     : { names: [], tools: [] };
   const sandboxDir = agentMode ? resolveVoiceSandbox(options.sandbox) : "";
   const agentMaxSteps = parsePositiveInteger(options.agentMaxSteps, 20);
+  // C3b: the extension connects OUT to this process, so the bridge must be
+  // listening for the whole session when browser control tools are active.
+  if (agentMode) {
+    ensureControlBridgeStarted(activeTools.names);
+  }
   const interruptController = new InterruptController(playback, {
     enabled: voice.bargeIn,
     vad: {

@@ -25,6 +25,7 @@ import { voiceCheckCommand } from "./commands/voiceCheck";
 import { voiceChatCommand } from "./commands/voiceChat";
 import { ttsCompareCommand } from "./commands/ttsCompare";
 import { delegatesCommand } from "./commands/delegates";
+import { controlCommand } from "./commands/control";
 
 const program = new Command();
 
@@ -75,6 +76,7 @@ program
 program.addCommand(promptsCommand());
 program.addCommand(memoryCommand());
 program.addCommand(delegatesCommand());
+program.addCommand(controlCommand());
 
 program
   .command("voice-check")

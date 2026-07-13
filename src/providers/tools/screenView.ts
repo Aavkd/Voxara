@@ -1,5 +1,6 @@
 import { loadControlScreenshotMaxEdge, loadControlVisionConfig } from "../../config/loader";
 import { captureScreen } from "../../control/screenCapture";
+import { BrowserExecutor, getBrowserExecutor } from "../../control/executor";
 import { journalScreenView } from "../../control/journal";
 import { ScreenImageResult, ScreenTarget } from "../../control/types";
 import { createProvider } from "../factory";
@@ -11,6 +12,8 @@ interface ScreenViewDependencies {
   journal?: typeof journalScreenView;
   createVisionProvider?: () => ILLMProvider;
   maxEdge?: () => number;
+  /** Browser channel for target=browser_tab (C3b); injectable in tests. */
+  browserExecutor?: () => BrowserExecutor;
 }
 
 export function createScreenViewTool(
@@ -22,10 +25,11 @@ export function createScreenViewTool(
   return {
     name: "screen_view",
     description:
-      "Capture and inspect the user's current Windows screen or a visible window. " +
+      "Capture and inspect the user's current Windows screen, a visible window, or the " +
+      "active Chrome tab (target=browser_tab, via the paired extension — sharper and " +
+      "cheaper than a full-screen capture when the content is in the browser). " +
       "Use only when the user asks you to look at their screen. The capture may be sent " +
-      "to the configured cloud vision provider and therefore leave the machine. " +
-      "target=browser_tab is reserved for the Chrome bridge and is not available yet.",
+      "to the configured cloud vision provider and therefore leave the machine.",
     parameters: {
       type: "object",
       properties: {
@@ -60,17 +64,18 @@ export function createScreenViewTool(
       let image: ScreenImageResult | undefined;
 
       try {
-        if (target === "browser_tab") {
-          throw new Error("browser_tab capture is not available until the C3b Chrome bridge");
-        }
         if (target === "window" && !windowTitle) {
           throw new Error("window_title is required when target is window");
         }
-        image = await capture({
-          target,
-          windowTitle,
-          maxEdge: (dependencies.maxEdge ?? loadControlScreenshotMaxEdge)(),
-        });
+        if (target === "browser_tab") {
+          image = await (dependencies.browserExecutor ?? getBrowserExecutor)().screenshot();
+        } else {
+          image = await capture({
+            target,
+            windowTitle,
+            maxEdge: (dependencies.maxEdge ?? loadControlScreenshotMaxEdge)(),
+          });
+        }
 
         let result: unknown;
         if (context?.activeProvider?.supportsImages) {

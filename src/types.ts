@@ -5,10 +5,30 @@
 
 // ── Core / Base Types ─────────────────────────────────────────────
 
-/** Provider-generic content carried by a conversational message. */
+/**
+ * Provider-generic content carried by a conversational message.
+ *
+ * tool_call / tool_result parts keep the agent loop's tool exchanges
+ * STRUCTURED in the history so providers with native function-calling
+ * (Gemini functionCall/functionResponse) replay them in their own format.
+ * Serializing them as plain text taught small models to imitate the textual
+ * form instead of calling the API — which then got spoken by the voice
+ * pipeline (live finding, 2026-07-13).
+ */
 export type ContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; mimeType: "image/png" | "image/jpeg"; base64: string };
+  | { type: "image"; mimeType: "image/png" | "image/jpeg"; base64: string }
+  | {
+      type: "tool_call";
+      name: string;
+      args: Record<string, unknown>;
+      /**
+       * Gemini 3 thought signature returned with the functionCall part; the
+       * API rejects replayed history whose functionCall parts omit it.
+       */
+      thoughtSignature?: string;
+    }
+  | { type: "tool_result"; name: string; result: string };
 
 export type MessageContent = string | ContentPart[];
 
@@ -19,14 +39,29 @@ export interface Message {
   timestamp: number;
 }
 
-/** Flatten the textual parts of a message for text-only consumers/providers. */
+/**
+ * Flatten a message for text-only consumers/providers. Tool exchanges are
+ * rendered descriptively (parenthesized, unlike any model-emittable syntax)
+ * so text-only providers keep the semantic content without learning an
+ * imitable bracket format.
+ */
 export function messageText(message: Pick<Message, "content">): string {
-  return typeof message.content === "string"
-    ? message.content
-    : message.content
-        .filter((part): part is Extract<ContentPart, { type: "text" }> => part.type === "text")
-        .map((part) => part.text)
-        .join("\n");
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+  return message.content
+    .map((part) => {
+      if (part.type === "text") return part.text;
+      if (part.type === "tool_call") {
+        return `(tool call executed: ${part.name} ${JSON.stringify(part.args)})`;
+      }
+      if (part.type === "tool_result") {
+        return `(tool result from ${part.name}) ${part.result}`;
+      }
+      return ""; // image bytes never leak into text-only paths
+    })
+    .filter((text) => text.length > 0)
+    .join("\n");
 }
 
 /** Input parameters for a single prompt request. */
@@ -297,6 +332,19 @@ export interface AgentStepResult {
   type: "tool_call" | "final_answer";
   toolName?: string;
   toolParams?: Record<string, unknown>;
+  /**
+   * Further function calls issued in the SAME model response (Gemini can
+   * emit several in parallel, e.g. fill+click). The loop executes them in
+   * order after the primary one; dropping them silently pushed the model
+   * into writing tool calls as text instead.
+   */
+  extraToolCalls?: {
+    toolName: string;
+    toolParams: Record<string, unknown>;
+    thoughtSignature?: string;
+  }[];
+  /** Gemini 3 thought signature of the primary function call (echoed in history). */
+  thoughtSignature?: string;
   text?: string;
   inputTokens: number;
   outputTokens: number;
