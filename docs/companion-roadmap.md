@@ -153,6 +153,18 @@ the shared engine primitives specified in phase C1 — task store, delivery queu
 background dispatch — which C1's reminders and session opening then reuse when
 they land afterwards.
 
+**Priority update (2026-07-14):** the platform/UX layer comes before C1. The
+resident service, local API, and Windows presence layer (tray, global hotkey,
+native notifications) are specified in
+[phase-c4-resident-service.md](phase-c4-resident-service.md) and are the next
+implementation work. Rationale: every presence feature (reminders §2.1a, wake
+word §2.4, briefing §5.2, remote web app §5.3) presupposes a Voxara that is
+already running rather than a terminal session started by hand. C4 also
+realizes the API half of §5.3. The standalone terminal experience remains
+first-class and unchanged (hard requirement R1 of the C4 spec). C1 lands
+immediately after C4, delivering reminders through the service's
+always-available delivery channel.
+
 Testing follows the project convention: Jest with all LLM (and TTS/STT) calls
 mocked; scheduler and tool logic tested against temp directories and fake
 clocks. Anything touching the voice hot path must not add latency to the
@@ -199,6 +211,12 @@ plus a web front usable from a phone or anywhere. Alexy has deployed multiple
 fronts on Vercel and runs his own server machine, so hosting is a solved
 problem — the work is the API surface and session/auth model. Text first;
 remote voice (browser mic → STT sidecar) as a follow-up.
+
+> **Partially realized (2026-07-14):** the local API surface is built by
+> phase C4 ([phase-c4-resident-service.md](phase-c4-resident-service.md)),
+> localhost-only. What remains of this item is the exposure layer (gateway,
+> auth, TLS) and the web front itself — a later phase, possibly followed by
+> an Electron packaging of the same front.
 
 ### 5.4 Off-the-record mode
 

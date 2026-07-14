@@ -210,7 +210,8 @@ export function isPidAlive(pid: number): boolean {
 export function sweepInterruptedTasks(
   currentPid: number,
   baseDir?: string,
-  isAlive: (pid: number) => boolean = isPidAlive
+  isAlive: (pid: number) => boolean = isPidAlive,
+  kinds?: readonly string[]
 ): TaskRecord[] {
   const tasks = listTasks(baseDir);
   const interrupted: TaskRecord[] = [];
@@ -218,6 +219,9 @@ export function sweepInterruptedTasks(
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
+    if (kinds && !kinds.includes(task.kind)) {
+      continue;
+    }
     const orphaned =
       task.ownerPid === null ||
       (task.ownerPid !== currentPid && !isAlive(task.ownerPid));

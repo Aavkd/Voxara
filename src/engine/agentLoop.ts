@@ -6,7 +6,11 @@
 
 import { ILLMProvider } from "../providers/ILLMProvider";
 import { IToolProvider, ToolExecutionContext } from "../providers/tools/IToolProvider";
-import { Message, AgentStepResult, ToolCallRecord } from "../types";
+import {
+  rememberFastLaneApproval,
+  takeApprovedFastLaneAction,
+} from "../control/fastLaneApproval";
+import { Message, AgentStepResult, ToolCallRecord, messageText } from "../types";
 
 /** Return value of a completed agent loop run. */
 export interface AgentLoopResult {
@@ -59,6 +63,57 @@ export async function runAgentLoop(
   const toolMap: Record<string, IToolProvider> = {};
   for (const tool of tools) {
     toolMap[tool.name] = tool;
+  }
+
+  // Resume an EXACT blocked control call after the user's next explicit yes.
+  // This happens before asking the model, so neither the action/target nor the
+  // approval bit can drift in model-generated arguments between turns.
+  const latestUserText = latestConversationUserText(toolContext) ?? initialPrompt;
+  const approvedPending = takeApprovedFastLaneAction(
+    toolContext?.sessionId,
+    latestUserText
+  );
+  if (approvedPending) {
+    const { toolName, toolParams } = approvedPending;
+    const tool = toolMap[toolName];
+    onStep({
+      type: "tool_call",
+      toolName,
+      toolParams,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+
+    let toolResult: unknown;
+    if (!tool) {
+      toolResult = `error: unknown tool "${toolName}"`;
+    } else {
+      try {
+        toolResult = await tool.execute(toolParams, sandboxDir, {
+          ...toolContext,
+          activeProvider: provider,
+          controlApproved: true,
+        });
+      } catch (err: unknown) {
+        toolResult = `error: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    const approvedRecord: ToolCallRecord = {
+      name: toolName,
+      params: toolParams,
+      result: toolResult,
+      stepIndex: -1,
+    };
+    toolCallsMade.push(approvedRecord);
+    onToolResult?.(approvedRecord);
+    rememberFastLaneApproval(
+      toolContext?.sessionId,
+      toolName,
+      toolParams,
+      toolResult
+    );
+    appendStructuredToolExchange(messages, toolName, toolParams, toolResult);
   }
 
   while (stepIndex < maxSteps) {
@@ -124,51 +179,24 @@ export async function runAgentLoop(
       };
       toolCallsMade.push(toolCallRecord);
       onToolResult?.(toolCallRecord);
+      rememberFastLaneApproval(
+        toolContext?.sessionId,
+        toolName,
+        toolParams,
+        toolResult
+      );
 
       // Append the exchange as STRUCTURED parts, never as imitable text:
       // providers with native function calling (Gemini) replay them as
       // functionCall/functionResponse, text-only providers get the
       // descriptive messageText() rendering.
-      const imageResult = asImageToolResult(toolResult);
-      messages.push({
-        role: "model",
-        content: [{ type: "tool_call", name: toolName, args: toolParams, thoughtSignature }],
-        timestamp: Date.now(),
-      });
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            name: toolName,
-            result: imageResult
-              ? imageResult.note ?? "image captured — attached in the next message"
-              : typeof toolResult === "string"
-                ? toolResult
-                : JSON.stringify(toolResult),
-          },
-        ],
-        timestamp: Date.now(),
-      });
-      if (imageResult) {
-        // The image travels in its own user message: Gemini accepts inline
-        // data beside text parts, but not inside a functionResponse.
-        messages.push({
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Capture returned by ${toolName}:${imageResult.note ? ` ${imageResult.note}` : ""}`,
-            },
-            {
-              type: "image",
-              mimeType: imageResult.mimeType,
-              base64: imageResult.base64,
-            },
-          ],
-          timestamp: Date.now(),
-        });
-      }
+      appendStructuredToolExchange(
+        messages,
+        toolName,
+        toolParams,
+        toolResult,
+        thoughtSignature
+      );
     }
   }
 
@@ -179,6 +207,74 @@ export async function runAgentLoop(
     steps: stepIndex,
     error: `max steps exceeded (limit: ${maxSteps})`,
   };
+}
+
+function latestConversationUserText(
+  context: ToolExecutionContext | undefined
+): string | undefined {
+  const messages = context?.conversationMessages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      return messageText(messages[i]);
+    }
+  }
+  return undefined;
+}
+
+function appendStructuredToolExchange(
+  messages: Message[],
+  toolName: string,
+  toolParams: Record<string, unknown>,
+  toolResult: unknown,
+  thoughtSignature?: string
+): void {
+  const imageResult = asImageToolResult(toolResult);
+  messages.push({
+    role: "model",
+    content: [
+      {
+        type: "tool_call",
+        name: toolName,
+        args: toolParams,
+        thoughtSignature,
+      },
+    ],
+    timestamp: Date.now(),
+  });
+  messages.push({
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        name: toolName,
+        result: imageResult
+          ? imageResult.note ?? "image captured — attached in the next message"
+          : typeof toolResult === "string"
+            ? toolResult
+            : JSON.stringify(toolResult),
+      },
+    ],
+    timestamp: Date.now(),
+  });
+  if (imageResult) {
+    // The image travels in its own user message: Gemini accepts inline data
+    // beside text parts, but not inside a functionResponse.
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Capture returned by ${toolName}:${imageResult.note ? ` ${imageResult.note}` : ""}`,
+        },
+        {
+          type: "image",
+          mimeType: imageResult.mimeType,
+          base64: imageResult.base64,
+        },
+      ],
+      timestamp: Date.now(),
+    });
+  }
 }
 
 /**

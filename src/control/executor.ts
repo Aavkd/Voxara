@@ -26,7 +26,7 @@ export interface BridgeLike {
   start(): Promise<void>;
   isExtensionConnected(): boolean;
   request<T = unknown>(
-    command: "snapshot" | "act" | "navigate" | "tabs" | "screenshot",
+    command: "snapshot" | "act" | "navigate" | "tabs" | "screenshot" | "exec_js",
     params?: Record<string, unknown>,
     timeoutMs?: number
   ): Promise<T>;
@@ -47,6 +47,8 @@ export interface BrowserExecutor {
   act(request: BrowserActRequest): Promise<unknown>;
   /** Tab screenshot via the extension — serves screen_view target=browser_tab. */
   screenshot(tabId?: number): Promise<ScreenImageResult>;
+  /** Run generated JS in the active tab (control_code browser_js, §9.4). */
+  execJs(code: string, tabId?: number): Promise<unknown>;
   /**
    * Element from the LAST snapshot for policy classification (§8.1).
    * Undefined for a ref never seen or invalidated by a newer snapshot.
@@ -128,6 +130,14 @@ export function createBrowserExecutor(
         throw new Error("the extension returned no screenshot data");
       }
       return { kind: "image", mimeType: "image/png", base64 };
+    },
+
+    async execJs(code: string, tabId?: number): Promise<unknown> {
+      await ensureAvailable();
+      return bridge.request("exec_js", {
+        code,
+        ...(tabId !== undefined ? { tabId } : {}),
+      });
     },
 
     lookupRef(ref: string): SnapshotElement | undefined {

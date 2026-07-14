@@ -283,7 +283,16 @@ export function getBrowserBridge(): BrowserBridge {
  * warning — the browser tools then fail fast per call with guidance.
  */
 export function ensureControlBridgeStarted(toolNames: string[]): void {
-  const controlTools = ["browser_read", "browser_act", "screen_view"];
+  // Any browser-capable tool needs the bridge listening: the fast-lane
+  // browser tools, control_code (browser_js), and pilot_task (a pilot may use
+  // the browser tools). Desktop-only sessions do not need it.
+  const controlTools = [
+    "browser_read",
+    "browser_act",
+    "screen_view",
+    "control_code",
+    "pilot_task",
+  ];
   if (!toolNames.some((name) => controlTools.includes(name))) {
     return;
   }

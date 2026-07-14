@@ -27,6 +27,7 @@ import {
   startConsolidationSweep,
 } from "../memory/consolidation";
 import { ensureControlBridgeStarted } from "../control/browserBridge";
+import { getPilotService } from "../control/pilot";
 import {
   DeliveryRecord,
   markDeliveriesDelivered,
@@ -666,6 +667,10 @@ export async function voiceChatCommand(options: VoiceChatOptions): Promise<void>
   // listening for the whole session when browser control tools are active.
   if (agentMode) {
     ensureControlBridgeStarted(activeTools.names);
+    // C3c: report any pilot interrupted by a previous crash (§9.6).
+    if (activeTools.names.includes("pilot_task")) {
+      getPilotService();
+    }
   }
   const interruptController = new InterruptController(playback, {
     enabled: voice.bargeIn,

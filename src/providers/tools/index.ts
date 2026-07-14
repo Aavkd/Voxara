@@ -18,6 +18,13 @@ import delegateCancel from "./delegateCancel";
 import screenView from "./screenView";
 import browserRead from "./browserRead";
 import browserAct from "./browserAct";
+import desktopRead from "./desktopRead";
+import desktopAct from "./desktopAct";
+import controlCode from "./controlCode";
+import pilotTask from "./pilotTask";
+import pilotStatus from "./pilotStatus";
+import pilotApprove from "./pilotApprove";
+import pilotCancel from "./pilotCancel";
 
 /** Registry of all built-in tools, keyed by tool name. */
 export const TOOL_REGISTRY: Record<string, IToolProvider> = {
@@ -34,6 +41,13 @@ export const TOOL_REGISTRY: Record<string, IToolProvider> = {
   [screenView.name]: screenView,
   [browserRead.name]: browserRead,
   [browserAct.name]: browserAct,
+  [desktopRead.name]: desktopRead,
+  [desktopAct.name]: desktopAct,
+  [controlCode.name]: controlCode,
+  [pilotTask.name]: pilotTask,
+  [pilotStatus.name]: pilotStatus,
+  [pilotApprove.name]: pilotApprove,
+  [pilotCancel.name]: pilotCancel,
 };
 
 /**

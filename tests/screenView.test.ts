@@ -74,6 +74,7 @@ describe("screen_view", () => {
         listTabs: async () => [],
         act: async () => undefined,
         screenshot: async () => image,
+        execJs: async () => ({ value: "undefined" }),
         lookupRef: () => undefined,
         isAvailable: () => true,
       }),
@@ -101,6 +102,7 @@ describe("screen_view", () => {
         screenshot: async () => {
           throw new Error("l'extension Chrome n'est pas connectée — `llmtest control doctor` explique l'appairage");
         },
+        execJs: async () => ({ value: "undefined" }),
         lookupRef: () => undefined,
         isAvailable: () => false,
       }),

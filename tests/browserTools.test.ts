@@ -29,6 +29,7 @@ function fakeExecutor(overrides: Partial<BrowserExecutor> = {}): BrowserExecutor
     listTabs: async () => [],
     act: async () => ({ done: true }),
     screenshot: async () => ({ kind: "image", mimeType: "image/png", base64: "aW1n" }),
+    execJs: async () => ({ value: "undefined" }),
     lookupRef: () => undefined,
     isAvailable: () => true,
     ...overrides,
@@ -115,7 +116,7 @@ describe("browser_read tool", () => {
 describe("browser_act tool", () => {
   beforeEach(() => resetControlSessionGrants());
 
-  test("under session_grant, the first reversible action returns a grant request, and the confirmed retry executes", async () => {
+  test("under session_grant, trusted runtime approval executes the blocked action", async () => {
     const journal = jest.fn();
     const act = jest.fn(async () => ({ tabId: 3 }));
     const tool = createBrowserActTool({
@@ -137,9 +138,9 @@ describe("browser_act tool", () => {
     }));
 
     const confirmed = await tool.execute(
-      { action: "navigate", url: "https://youtube.com", confirmed: true },
+      { action: "navigate", url: "https://youtube.com" },
       ".",
-      { sessionId: "grant-flow" }
+      { sessionId: "grant-flow", controlApproved: true }
     );
     expect(confirmed).toEqual({ tabId: 3 });
 
@@ -165,9 +166,9 @@ describe("browser_act tool", () => {
 
     // Establish the session grant first.
     await tool.execute(
-      { action: "navigate", url: "https://a", confirmed: true },
+      { action: "navigate", url: "https://a" },
       ".",
-      { sessionId: "s2" }
+      { sessionId: "s2", controlApproved: true }
     );
 
     const blocked = await tool.execute({ action: "click", ref: "e7" }, ".", { sessionId: "s2" });

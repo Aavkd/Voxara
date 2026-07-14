@@ -8,11 +8,14 @@
 import { Command } from "commander";
 import {
   loadControlBridgePort,
+  loadControlCodeAuto,
   loadControlMaxSnapshotChars,
+  loadControlPilotMaxSteps,
   loadControlTrustLevel,
   loadVoiceConfig,
 } from "../config/loader";
 import { BrowserBridge, getOrCreateBridgeToken } from "../control/browserBridge";
+import { DesktopHost } from "../control/desktopHost";
 
 const CONNECT_WAIT_MS = 6000;
 
@@ -33,6 +36,8 @@ export function controlCommand(): Command {
       console.log(`  Trust level:        ${loadControlTrustLevel()} (CONTROL_TRUST_LEVEL)`);
       console.log(`  Bridge port:        127.0.0.1:${port} (CONTROL_BRIDGE_PORT)`);
       console.log(`  Snapshot budget:    ${loadControlMaxSnapshotChars()} chars (CONTROL_MAX_SNAPSHOT_CHARS)`);
+      console.log(`  Pilot step budget:  ${loadControlPilotMaxSteps()} (CONTROL_PILOT_MAX_STEPS)`);
+      console.log(`  control_code auto:  ${loadControlCodeAuto()} (CONTROL_CODE_AUTO)`);
       console.log("");
       console.log("Chrome extension pairing");
       console.log(`  Pairing token:      ${token}`);
@@ -71,6 +76,28 @@ export function controlCommand(): Command {
         );
       }
       await bridge.stop();
+
+      // Desktop channel (C3c1): the persistent PowerShell UIA helper.
+      console.log("");
+      console.log("Desktop control (UI Automation host)");
+      if (process.platform !== "win32") {
+        console.log("  Unavailable — desktop control is Windows-only on this platform.");
+        return;
+      }
+      const host = new DesktopHost();
+      try {
+        const pong = await host.request<string>("ping", {}, 8000);
+        const windows = await host.request<unknown[]>("list_windows", {}, 8000);
+        console.log(
+          `  OK — helper responds (${pong}); ${Array.isArray(windows) ? windows.length : 0} top-level window(s) visible.`
+        );
+      } catch (err: unknown) {
+        console.log(
+          `  Problem starting the desktop helper: ${err instanceof Error ? err.message : String(err)}`
+        );
+      } finally {
+        await host.stop();
+      }
     });
 
   return command;

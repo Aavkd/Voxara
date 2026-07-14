@@ -15,6 +15,17 @@ export interface ToolExecutionContext {
   activeProvider?: ILLMProvider;
   /** Optional injected fallback provider (primarily useful for tests). */
   visionProvider?: ILLMProvider;
+  /**
+   * Trusted approval bit set only by application code after consuming an
+   * explicit user confirmation. Tool parameters come from the model and must
+   * never be treated as proof of consent.
+   */
+  controlApproved?: boolean;
+  /**
+   * Which control lane this call runs in (phase C3 §9.6). Set to "pilot" by
+   * the pilot service; fast-lane acting tools refuse while a pilot runs.
+   */
+  controlLane?: "fast" | "pilot";
 }
 
 export interface IToolProvider {

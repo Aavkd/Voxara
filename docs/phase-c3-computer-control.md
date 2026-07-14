@@ -5,7 +5,13 @@
 > browser_act + policy/journal/grant + `llmtest control doctor`) — live
 > validation pending. Slice C3c fully conceptualized 2026-07-13 (decisions
 > D8–D11) and split into C3c1 (desktop control + code fallback) and C3c2
-> (pilot); both remain to implement. Priority (decision
+> (pilot). **C3c1 and C3c2 both implemented 2026-07-14** (desktop host +
+> `desktop_read`/`desktop_act`, `control_code` with the extension `exec_js`
+> command, and the pilot service with `pilot_task`/`pilot_status`/
+> `pilot_approve`/`pilot_cancel`); 317 fake-first tests pass and the desktop
+> host was smoke-verified on the user's machine (ping, list_windows,
+> last_input, resolve_app). Live voice validation of the §9.5/§9.6 acceptance
+> scenarios is pending. Deviations recorded in §9.7. Priority (decision
 > 2026-07-12): C3 is implemented next — before the remaining delegation
 > slices C2d-2 and C2d-5 (C2d-1/3/4 are already shipped).** This document is
 > the source of truth for the feature. Coding agents implementing this phase must
@@ -124,18 +130,19 @@ Added 2026-07-13 (C3c conceptualization with the user):
   ephemeral refs, same snapshot character budget, same executor-side ref
   cache feeding the policy classifier.
 - **D9 — Keyboard input takes two routes.** *Executing a command visibly*
-  ("ouvre un terminal et lance X") is expressed as `open_app` with `args` —
-  the terminal is launched with the command, no focus race. *Interacting
-  with an already-open app* uses `type` (literal text to a focused window)
-  and `keys` (named keys/chords). `type` rejects control characters, so
-  pressing Enter is always an explicit `keys` intent — which is exactly what
-  the policy gates.
-- **D10 — Command execution is act_sensitive.** `keys` (Enter, chords) and
-  `open_app` whose args are not existing filesystem paths are the desktop
-  analogue of the form submit (§8.1): individually confirmed under
-  `session_grant`, with the concrete effect named ("je lance `npm test`
-  dans le terminal — je confirme ?"). Typing the text itself stays
-  reversible; it is pressing Enter that commits.
+  uses either `open_app` with `args`, or one atomic `type { submit: true }`
+  intent for an already-open terminal. The latter types and presses Enter in
+  one host call, so a blocked action never leaves half-typed text behind.
+  Plain `type` remains literal text; `keys` is reserved for named GUI
+  keys/chords and stays separately gated because it can encode destructive
+  shortcuts.
+- **D10 — Command execution is act_sensitive but session-grant-covered.**
+  `type { submit: true }` and `open_app` whose args are not existing filesystem
+  paths are committing effects, so `confirm_each` still confirms them. Under
+  the default `session_grant`, however, the single "je prends la main" consent
+  covers ordinary command execution too — there is no second command grant or
+  `confirmed:true` retry dance. `close`, raw `keys` chords, stale/unknown refs,
+  browser submissions, and `control_code` retain their individual gates.
 - **D11 — C3c ships as two sub-slices.** C3c1 = desktop control + the
   `control_code` fallback, live-validated on the terminal / Explorer /
   VS Code scenarios (§9.5). C3c2 = the pilot service. Refines D7's slice
@@ -151,8 +158,9 @@ Added 2026-07-13 (C3c conceptualization with the user):
 3. The policy classifies the intent (§8.1). Under the default
    `session_grant` trust level: observation is free; the first **acting**
    intent of a session asks once — "Je prends la main quand il faut pour
-   cette session ?" — and an affirmative grants reversible actions for the
-   rest of the session. Sensitive intents are confirmed individually with
+   cette session ?" — and an affirmative grants reversible actions **and
+   ordinary command execution** for the rest of the session. Destructive,
+   unbounded, or otherwise non-grant-covered sensitive intents are confirmed individually with
    their concrete effect ("Je ferme Word ; il y a un document non enregistré
    — je confirme ?"), C2 §3.2 style: describe the effect, never ask a generic
    permission question.
@@ -466,15 +474,18 @@ desktop channel flags close-with-unsaved-state when UIA exposes it.
 | | observe | act_reversible | act_sensitive |
 |---|---|---|---|
 | `confirm_each` | free | confirm each | confirm each |
-| `session_grant` | free | free once the session grant is given (§4.1) | confirm each |
+| `session_grant` | free | free once the session grant is given (§4.1) | confirm each, except ordinary command execution covered by that same grant (D10) |
 | `auto` | free | free | free |
 
 - The policy returns `allowed | needs_grant | needs_confirmation | rejected`
   plus a reason; the **tools** relay `needs_*` outcomes to the conversational
-  agent, which asks the user with the concrete effect and retries the same
-  call with `confirmed: true` after an explicit yes (same conversational
-  contract as C2's approval flow; no persistent pending state is needed for
-  fast-lane intents — pilots use the delivery queue for approvals).
+  agent, which asks the user with the concrete effect and stops. The runtime
+  stores the **exact first blocked call**, consumes the very next explicit
+  affirmative reply, and replays that call with a trusted application-only
+  approval bit. `confirmed` is not exposed in tool schemas and a model-supplied
+  field is ignored. A denial, unrelated answer, or ambiguity cancels the
+  in-memory pending action so consent cannot be reused later. Pilots use the
+  same trusted bit after their delivery-queue approval flow.
 - `auto` skips confirmations but **never** skips journaling, the kill-switch,
   or user-input pause. `control_code` remains confirmed even under `auto`
   unless `CONTROL_CODE_AUTO=true` is set explicitly.
@@ -553,14 +564,13 @@ One intent per call:
   (SendInput/SendKeys with trusted-code escaping of metacharacters), and
   re-verifies; a focus change mid-send aborts with a relayable error rather
   than typing into the wrong window.
-- **The two keyboard routes in practice (D9):** "ouvre un terminal et lance
-  `npm test`" is `open_app { target: "terminal", args: [… npm test …] }` —
-  one sensitive intent, one confirmation naming the command. "Tape
-  `git status` dans le terminal et exécute" is `type` (free under the
-  session grant) followed by `keys "enter"` (confirmed with the command it
-  executes). The tool description steers the model: to *run* something,
-  prefer launch-with-args; `type` is for interacting with an app that is
-  already open.
+- **The two command routes in practice (D9):** "ouvre un terminal et lance
+  `npm test`" is `open_app { target: "terminal", args: [… npm test …] }`.
+  "Tape `git status` dans le terminal et exécute" is one atomic
+  `type { text: "git status", submit: true }`. Both flow without another
+  confirmation once the session grant exists. Bare `keys` remains for GUI
+  shortcuts/chords, not for splitting terminal command execution into two
+  calls.
 - Pixel-coordinate input synthesis remains **not** implemented (non-goal);
   if a target has no usable UIA surface, the answer is `control_code` or
   "je ne peux pas piloter cette application proprement". Known limitation to
@@ -606,9 +616,10 @@ Live, by voice, in one session:
 - "Ouvre l'explorateur de fichiers" then "ouvre VS Code" — `open_app`, free
   once the session grant is given.
 - "Ouvre un terminal et lance `npm test`" — `open_app` with args → exactly
-  one confirmation naming the command, then the terminal appears running it.
-- "Tape `git status` dans le terminal et exécute" — `type` free under the
-  grant, `keys enter` confirmed with the concrete command.
+  no additional confirmation after the session grant, then the terminal
+  appears running it.
+- "Tape `git status` dans le terminal et exécute" — one atomic
+  `type { submit: true }`, free under the existing session grant.
 - One in-app UIA interaction, e.g. `desktop_read elements` on Notepad and
   `invoke` on a menu item.
 - The Electron caveat checked on VS Code: outline quality recorded here; if
@@ -627,11 +638,17 @@ Live, by voice, in one session:
   results, failures, grant/confirmation requests, and pause notices flow
   through the **delivery queue** with the same turn-boundary voice
   announcement mechanics validated in C2a.
-- Policy inside the pilot is identical (§8); a `needs_confirmation` outcome
-  suspends the pilot and queues a `task_approval`-style delivery; the user's
-  yes resumes it (`pilot_approve` mirrors `delegate_approve` — or the C2
-  approval tool is generalized if trivially possible; implementer's choice,
-  documented in this file when made).
+- Policy inside the pilot is identical (§8); a `needs_confirmation` (and, on
+  the first reversible action under `session_grant`, a `needs_grant`) outcome
+  suspends the pilot and queues an approval delivery; the user's yes resumes
+  it. **Implementer's choice made 2026-07-14:** a dedicated `pilot_approve`
+  tool (not a generalized C2 `delegate_approve`) — the two services own
+  separate task kinds and lanes, and a `pilot`-specific tool keeps the
+  conversational contract unambiguous. `pilot_approve` also doubles as the
+  hand-back resume ("reprends") after a user-input pause, so one tool covers
+  both "oui, continue" cases. Deliveries use two new kinds, `pilot_approval`
+  and `pilot_paused` (delivery consumers render `.text`, so adding kinds is
+  safe).
 - **User-input pause** (§4.3) is checked before each acting step via
   `GetLastInputInfo`. **`pilot_cancel`** aborts between steps and interrupts
   the in-flight bridge/UIA call.
@@ -644,6 +661,135 @@ Live, by voice, in one session:
 pilot with one confirmation listing the apps to close; moving the mouse
 mid-run pauses it with a spoken hand-back; "compare ce produit sur deux
 autres sites" browses in background and speaks a summary at an idle boundary.
+
+### 9.7 Implementation notes (2026-07-14)
+
+Deviations and decisions taken while implementing C3c1 + C3c2:
+
+- **Desktop host process.** `desktopHost.ts` runs `powershell.exe -File` on a
+  static script rewritten to `~/.llmtest/state/control/desktop-host.ps1` on
+  every spawn (so it always matches the build); the model never contributes
+  to it. Requests are JSON lines over stdin (non-ASCII `\u`-escaped so the
+  child's console code page is irrelevant), responses JSON lines on stdout. A
+  **generation counter** increments on every (re)spawn: `desktop.ts` records
+  the generation with the outline it cached, so a ref minted under an older
+  generation resolves to `undefined` — i.e. an unknown ref ⇒ `act_sensitive`
+  (§8.1). A stale child's async `close`/`error` events are ignored once it has
+  been replaced, so they never abort the new child's in-flight request.
+- **App resolution.** `resolve_app` searches Start-Menu `.lnk`s, App Paths
+  (HKCU/HKLM), `Get-Command`, then `Get-StartApps`; the executor tie-breaks a
+  **unique exact-name** match and otherwise relays all candidates for the
+  model to disambiguate. Shortcut targets that are unexpanded KNOWNFOLDERID
+  GUIDs are dropped. UWP apps launch via `shell:AppsFolder\<AppID>` and reject
+  launch args.
+- **`control_code` browser_js needs a new bridge command.** §7.2 listed no
+  code-exec command, so `exec_js` was added to the bridge protocol and the
+  extension (MV3 `chrome.scripting.executeScript` in the **MAIN** world so
+  generated code sees page globals; a page CSP that blocks it surfaces as a
+  relayable error). Extension bumped to **0.2.0**; reload the unpacked
+  extension after pulling. PowerShell `control_code` reuses the C2
+  `processRunner` (script via stdin, bounded output, tree-kill on timeout).
+- **Pilot loop is bespoke, not `runAgentLoop`.** The approval suspension
+  (pause the loop, queue a delivery, resume on `pilot_approve`), the
+  user-input pause, and mid-step cancel need per-step hooks `runAgentLoop`
+  does not expose. `pilot.ts` runs its own loop reusing the same structured
+  `tool_call`/`tool_result` history and image handling. Suspension is an
+  **in-memory `await`** (the loop stays resident); this matches the §8.4
+  non-goal — an in-flight pilot does not survive process death, and is
+  reported `interrupted` on next startup instead.
+- **Lane mutual exclusion** lives in a tiny `pilotState.ts` module (avoids a
+  tools↔pilot import cycle). A pilot owns the single lane from dispatch
+  through its terminal state (including while suspended for approval); while
+  it holds the lane, fast-lane `browser_act` / `desktop_act` / `control_code`
+  return `action_blocked (pilot_running)` with the task id.
+- **User-input pause is best-effort.** The idle check reads `GetLastInputInfo`
+  via the desktop host; if that is unavailable (no host, non-Windows) the
+  pilot proceeds rather than blocking. A user-input burst within
+  `RECENT_INPUT_WINDOW_MS` (1500 ms) before an acting step triggers the pause.
+- **Interrupt sweep is now kind-scoped.** `sweepInterruptedTasks` takes an
+  optional `kinds` filter; delegation sweeps `coding_agent`, the pilot service
+  sweeps `pilot`, so the two startup recoveries never claim each other's
+  orphans (each queues its own correctly-worded delivery).
+- **`llmtest control doctor`** now also prints the pilot/`control_code` config
+  and performs a desktop-host `ping` + `list_windows` check (Windows only).
+
+**Live finding (first C3c desktop voice test, 2026-07-14) and fix.** The first
+`open_app` never launched anything: when `resolve_app` returned more than one
+candidate (the norm on a real machine — VS Code exe+UWP, several PowerShells,
+notepad variants) the executor only relayed the candidate list, and the model
+had no way to pin a choice, so it looped forever asking "which one?" while the
+user shouted "just launch it." Fix, shipped 2026-07-14: candidates are now
+**ranked** (a real `.exe` whose folded name — extension stripped — matches,
+plus a System32 bonus, beats x86/SysWOW64, ISE, and UWP near-duplicates); the
+top candidate launches automatically unless the tie at the top is between
+**genuinely different apps** (distinct names), which is the only case still
+relayed. When it is relayed, `desktop_act` accepts an `app_path` argument so
+the model, after the user picks, retries with the exact path from the offered
+list (re-validated against a fresh resolve — the model still never invents a
+path). Verified live: `open_app "notepad"` launches `system32\notepad.exe`.
+Recall gap left as-is for now: `resolve_app` matches by substring, so "vs code"
+does not find "Visual Studio Code" — the user gives the fuller name; alias
+handling is a later enhancement.
+
+**Live finding (second C3c desktop voice test, 2026-07-14) and fix.** Launch,
+close (with the unsaved-state warning on Ableton's `Untitled*`), and both
+keyboard routes worked, but running a terminal command **typed the command
+twice** (`ipconfigipconfig`). Cause: the D9 split — `type` (free) then
+`keys enter` (gated) — commits the text *before* the Enter is confirmed, so
+every time the user said "confirme" the model replayed the whole `type` +
+`keys` pair and a second copy of the text landed before Enter. Fix, shipped
+2026-07-14: an atomic **`type` with `submit: true`** that types the text and
+presses Enter in one host call (`type_submit`), classified `act_sensitive`
+(D10) exactly like a bare `keys enter`. When a gate applies (`confirm_each`,
+or the initial `needs_grant`) it happens *before* execution, leaving **no
+half-typed state**; after the session grant, the command runs directly with no
+per-command retry. The tool description now steers the model to use
+`type submit=true` to execute a command (never a separate `type`+`keys` for
+  that) and to stop on a blocked call; the runtime owns the exact replay.
+  Bare `keys` remains for GUI shortcuts/chords. This refines D9:
+Enter is still gated, but the "type a command and run it" case is one intent,
+not two. Verified live: `type submit=true "echo …"` runs once with no
+duplication. (A separate cosmetic model glitch — Gemini once emitted the tool
+name `desktop_desktop_act` — self-corrected on the next call and needs no code
+change.)
+
+**Live finding (third C3c desktop voice test, 2026-07-14) and fix.** Two
+independent failures remained. First, command execution used a second sticky
+"command grant" that only started after a successful `confirmed:true` retry;
+Gemini Flash Lite repeatedly repeated the unconfirmed call after "vas-y", so
+the user was trapped in a confirmation loop. The policy now has one grant:
+the session-level take-control consent covers reversible UI actions and
+ordinary `open_app`/`type submit=true` commands. Destructive or unbounded
+actions retain individual confirmation. Second, launch targeting read
+`$proc.MainWindowHandle`; for consoles hosted by Windows Terminal that handle
+is zero because `WindowsTerminal.exe` owns the top-level window. The desktop
+host now snapshots top-level handles before launch and diffs the window list
+afterward, returning the newly added stable `w<handle>` ref. Later type/focus/
+keys calls reuse that exact ref instead of falling back to a title substring
+that could hit the user's own terminal.
+
+**Live finding (fourth C3c desktop voice test, 2026-07-14) and replacement
+fix.** The third fix was insufficient in the real conversational path. The
+initial session grant still depended on Gemini emitting `confirmed:true`, so
+three successive replies (`"Oui, tu peux"`, `"Oui, tu peux"`, `"Oui, vas-y"`)
+were ignored before the model finally generated the flag. Worse, it changed
+the pending target from `powershell` to `terminal`; the UWP activation exposed
+a transient `w2427874` handle, then reused/disappeared into an existing Windows
+Terminal window. On the next turn that ref was stale, `desktop_read` exposed
+the user's own PowerShell as `w786740`, and the model substituted it.
+
+The replacement fix removes model-owned confirmation entirely. The fast-lane
+runtime preserves the original blocked `{ tool, params }`, recognizes the next
+explicit reply conservatively, and executes those original params with an
+internal `controlApproved` bit before asking the model again. Thus
+`open_app powershell` cannot drift into `open_app terminal`. Window capture
+also requires the same new handle to survive eight consecutive polls; a UWP
+launch with no durable new top-level window is marked unbound. Finally,
+keyboard input fails closed if an unbound launch is followed by typing, or if
+the model tries to replace a bound launch ref with a different `w<handle>`.
+The regression scenario now spans separate agent turns and the real desktop
+host: one `needs_grant`, one `"Oui, tu peux"`, stable PowerShell ref, command
+result carrying that same ref, then exact-window close.
 
 ## 10. Configuration (env, C2 naming style)
 
@@ -669,7 +815,8 @@ Fake-first, like C2 §15 — no live Chrome, GPU, or provider in CI:
   (bad token rejected), snapshot bounding, act round-trips, timeouts, and
   disconnect fail-fast messages.
 - **Policy:** classification table cases including the submit-click and
-  unknown⇒sensitive rules; the trust-level matrix; `confirmed: true` retry;
+  unknown⇒sensitive rules; the trust-level matrix; runtime-owned exact-call
+  approval across conversational turns; rejection of model-supplied approval;
   the D9/D10 desktop cases (open_app args path-vs-command, type control-char
   rejection, keys sensitive, stale desktop ref ⇒ sensitive).
 - **Executor/desktop:** a fake desktop host (test stdio process, like the

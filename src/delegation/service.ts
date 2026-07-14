@@ -1154,7 +1154,12 @@ export class DelegationService {
     }
     this.recovered = true;
 
-    const interrupted = sweepInterruptedTasks(process.pid, this.stateBaseDir);
+    const interrupted = sweepInterruptedTasks(
+      process.pid,
+      this.stateBaseDir,
+      undefined,
+      ["coding_agent"]
+    );
     for (const task of interrupted) {
       queueDelivery(
         "task_failure",

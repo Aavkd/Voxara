@@ -154,6 +154,8 @@ async function executeCommand(command, params) {
       return tabsCommand(params);
     case "screenshot":
       return screenshotCommand(params);
+    case "exec_js":
+      return execJsCommand(params);
     default:
       throw new Error(`unknown command "${command}"`);
   }
@@ -261,6 +263,54 @@ async function screenshotCommand(params) {
     throw new Error("captureVisibleTab returned no image data");
   }
   return base64;
+}
+
+async function execJsCommand(params) {
+  const code = String(params.code || "");
+  if (!code.trim()) {
+    throw new Error("exec_js requires non-empty code");
+  }
+  const tab = await resolveTab(params.tabId);
+  // Runs in the page's MAIN world so generated code sees page globals, the
+  // control_code (browser_js) fallback of §9.4. A page CSP that forbids the
+  // injected world surfaces as the executeScript error, relayed to the user.
+  let results;
+  try {
+    results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: (src) => {
+        try {
+          // eslint-disable-next-line no-new-func
+          const value = new Function(src)();
+          let serialized;
+          try {
+            serialized = value === undefined ? "undefined" : JSON.stringify(value);
+          } catch {
+            serialized = String(value);
+          }
+          return { ok: true, value: serialized === undefined ? "undefined" : serialized };
+        } catch (err) {
+          return { ok: false, error: err && err.message ? err.message : String(err) };
+        }
+      },
+      args: [code],
+    });
+  } catch (err) {
+    throw new Error(
+      `cannot run code on this page (restricted URL or a page CSP blocked it): ${
+        err && err.message ? err.message : err
+      }`
+    );
+  }
+  const outcome = results && results[0] ? results[0].result : undefined;
+  if (!outcome) {
+    throw new Error("the page returned no result (it may have navigated)");
+  }
+  if (outcome.ok !== true) {
+    throw new Error(outcome.error || "the generated code threw");
+  }
+  return { value: outcome.value, url: tab.url };
 }
 
 // ── Injected page functions ──────────────────────────────────────────

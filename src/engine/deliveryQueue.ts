@@ -18,7 +18,11 @@ export type DeliveryKind =
   | "task_result"
   | "task_failure"
   /** An external_action plan is ready and awaits explicit user approval (C2c §3.2). */
-  | "task_approval";
+  | "task_approval"
+  /** A background pilot needs an approval before it can continue (C3 §9.6). */
+  | "pilot_approval"
+  /** A pilot paused because the user touched the mouse/keyboard (C3 §4.3). */
+  | "pilot_paused";
 
 export interface DeliveryRecord {
   id: string;

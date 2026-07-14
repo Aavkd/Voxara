@@ -4,9 +4,9 @@
  *
  * Phase C3b (docs/phase-c3-computer-control.md §7.3, §8). The policy
  * classifies each intent by effect level; needs_grant / needs_confirmation
- * outcomes are returned to the conversational agent, which asks the user
- * with the concrete effect and retries the same call with confirmed=true
- * after an explicit yes (same conversational contract as C2 approvals).
+ * outcomes are returned to the conversational agent. The runtime remembers
+ * and resumes the exact call after an explicit yes (same conversational
+ * contract as C2 approvals, without a model-generated confirmation flag).
  */
 
 import { loadControlTrustLevel } from "../../config/loader";
@@ -54,8 +54,8 @@ export function createBrowserActTool(
       "navigate the active tab, or open_tab / activate_tab / close_tab. " +
       "Call browser_read first and use a FRESH ref — refs die on navigation " +
       "and on each new snapshot. If the result starts with action_blocked, " +
-      "relay the reason to the user in their language and, only after their " +
-      "explicit yes, retry the SAME call with confirmed=true.",
+      "relay the reason and STOP: the runtime resumes that exact call after " +
+      "the user's explicit yes. Never retry or change it yourself.",
     parameters: {
       type: "object",
       properties: {
@@ -80,12 +80,6 @@ export function createBrowserActTool(
           type: "number",
           description: "Tab id for activate_tab/close_tab (close defaults to the active tab).",
         },
-        confirmed: {
-          type: "boolean",
-          description:
-            "Set true ONLY when retrying after the user's explicit yes to the " +
-            "grant or confirmation question you relayed.",
-        },
       },
       required: ["action"],
     },
@@ -102,7 +96,8 @@ export function createBrowserActTool(
       const value = typeof params.value === "string" ? params.value : undefined;
       const url = typeof params.url === "string" ? params.url.trim() : undefined;
       const tabId = typeof params.tab_id === "number" ? params.tab_id : undefined;
-      const confirmed = params.confirmed === true;
+      // Approval is trusted application state, never a model-generated param.
+      const confirmed = context?.controlApproved === true;
       const sessionId = context?.sessionId || "unscoped";
       const executor = (dependencies.executor ?? getBrowserExecutor)();
 

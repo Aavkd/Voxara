@@ -44,6 +44,7 @@ import { drainPendingDeliveries } from "../engine/deliveryQueue";
 import { loadDelegationConfig } from "../config/loader";
 import { getDelegationService } from "../delegation/service";
 import { ensureControlBridgeStarted } from "../control/browserBridge";
+import { getPilotService } from "../control/pilot";
 
 export async function agentChatCommand(options: {
   key?: string;
@@ -98,6 +99,10 @@ export async function agentChatCommand(options: {
   // C3b: the Chrome extension connects OUT to this process, so the bridge
   // must be listening for the whole session when browser tools are active.
   ensureControlBridgeStarted(toolNames);
+  // C3c: report any pilot interrupted by a previous crash (§9.6).
+  if (toolNames.includes("pilot_task")) {
+    getPilotService();
+  }
 
   // ── Load initial RAG context ─────────────────────────────────────
   const loadedDocPaths: string[] = [];

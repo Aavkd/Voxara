@@ -86,9 +86,85 @@ export interface BrowserTabInfo {
   windowId?: number;
 }
 
+// ── Desktop intents (C3c1, §9.1–§9.2) ────────────────────────────────
+
+export type DesktopAction =
+  | "open_app"
+  | "focus"
+  | "close"
+  | "invoke"
+  | "set_value"
+  | "type"
+  | "keys";
+
+/** Top-level window as desktop_read what=windows reports it. */
+export interface DesktopWindowInfo {
+  title: string;
+  process: string;
+  pid: number;
+  /** Stable window ref (w<handle>) — target this to hit the exact window. */
+  ref: string;
+  focused: boolean;
+}
+
+/** State bits the UIA outline carries (§9.1) — cheap ones only. */
+export interface DesktopElementState {
+  enabled?: boolean;
+  focused?: boolean;
+  checked?: boolean;
+  expanded?: boolean;
+  value?: string;
+}
+
+export interface DesktopElement {
+  /**
+   * Ephemeral ref (e.g. "d12"), invalidated by the next `elements` read, a
+   * desktop-host restart, or the window closing.
+   */
+  ref: string;
+  /** UIA control type name (Button, Edit, MenuItem, …). */
+  controlType: string;
+  name: string;
+  state?: DesktopElementState;
+}
+
+export interface DesktopOutline {
+  /** Resolved window title the outline belongs to. */
+  window: string;
+  process?: string;
+  elements: DesktopElement[];
+  /** Present when the app-side character budget truncated the element list. */
+  truncated?: string;
+}
+
+// ── Desktop host protocol (§9.3) — JSON lines over stdio ─────────────
+
+export interface DesktopHostRequest {
+  id: string;
+  command: string;
+  params: Record<string, unknown>;
+}
+
+export interface DesktopHostResponse {
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
+
+// ── Code fallback (§9.4) ─────────────────────────────────────────────
+
+export type ControlCodeLanguage = "powershell" | "browser_js";
+
 // ── Bridge protocol (§7.2) ───────────────────────────────────────────
 
-export type BridgeCommand = "snapshot" | "act" | "navigate" | "tabs" | "screenshot";
+export type BridgeCommand =
+  | "snapshot"
+  | "act"
+  | "navigate"
+  | "tabs"
+  | "screenshot"
+  | "exec_js";
 
 export interface BridgeRequest {
   id: string;

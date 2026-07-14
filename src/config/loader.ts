@@ -224,6 +224,16 @@ export function loadControlMaxSnapshotChars(): number {
   return positiveInteger(undefined, process.env.CONTROL_MAX_SNAPSHOT_CHARS, 8000);
 }
 
+/** Step budget for a background pilot run (§9.6). */
+export function loadControlPilotMaxSteps(): number {
+  return positiveInteger(undefined, process.env.CONTROL_PILOT_MAX_STEPS, 20);
+}
+
+/** Let the `auto` trust level skip the control_code confirmation (§8.2). */
+export function loadControlCodeAuto(): boolean {
+  return (process.env.CONTROL_CODE_AUTO || "").trim().toLowerCase() === "true";
+}
+
 /**
  * Resolve the C2d-3 background briefing provider/model. Explicit briefing
  * values override the memory-agent configuration; invalid overrides degrade
